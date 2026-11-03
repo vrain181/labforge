@@ -1,0 +1,54 @@
+---
+# Renders the role's shell scripts with the real defaults and network variables,
+# so shellcheck can lint what would run on the router. CI runs this playbook and
+# then shellcheck on the output directory. Usage:
+#   ansible-playbook tests/render_scripts.yml -e render_dir=/tmp/rendered
+- name: Render the role's shell scripts for linting
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    render_dir: /tmp/openwrt-rendered
+    # Stand-in for the snapshot directory that rollback_prepare.sh creates on the router.
+    openwrt_rollback_run_dir: /tmp/openwrt-ansible-rollback/run.EXAMPLE
+
+  tasks:
+    - name: Load the role defaults and the network variables
+      ansible.builtin.include_vars: "{{ item }}"
+      loop:
+        - "{{ playbook_dir }}/../roles/openwrt/defaults/main.yml"
+        - "{{ playbook_dir }}/../inventory/group_vars/openwrt/network.yml"
+
+    # build.yml merges these lists. Without its generated sections this is
+    # enough to render every option, list and section form.
+    - name: Compose the section list like build.yml does
+      ansible.builtin.set_fact:
+        openwrt_uci_sections: "{{ openwrt_uci_static_sections + openwrt_site_sections }}"
+        openwrt_uci_previous_options: []
+        openwrt_uci_desired_option_paths: []
+
+    - name: Create the render directory
+      ansible.builtin.file:
+        path: "{{ render_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Render the staging script
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../roles/openwrt/templates/stage_uci.sh.j2"
+        dest: "{{ render_dir }}/stage_uci.sh"
+        mode: '0700'
+      vars:
+        openwrt_uci_prune_sections: []
+        openwrt_uci_prune_options: []
+
+    - name: Render the rollback scripts
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../roles/openwrt/templates/{{ item }}.sh.j2"
+        dest: "{{ render_dir }}/{{ item }}.sh"
+        mode: '0700'
+      loop:
+        - rollback_timer
+        - rollback_prepare
+        - rollback_confirm

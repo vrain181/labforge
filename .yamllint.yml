@@ -1,0 +1,25 @@
+---
+# yamllint configuration. Lints the project's YAML only: the virtualenv,
+# Ansible's cache and the router backups are excluded.
+extends: default
+
+ignore: |
+  .venv/
+  .ansible/
+  backups/
+
+rules:
+  line-length:
+    max: 160
+  truthy:
+    # GitHub Actions uses the key `on:`, which is not a boolean.
+    check-keys: false
+  braces:
+    max-spaces-inside: 1
+  comments:
+    min-spaces-from-content: 1
+  # Required by ansible-lint's production profile.
+  comments-indentation: false
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: true

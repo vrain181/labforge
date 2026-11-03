@@ -1,0 +1,24 @@
+---
+# Reload handlers. They run after the commit tasks in main.yml (or at the
+# flush_handlers task right after them).
+#
+# The handler runs once per entry of openwrt_uci_apply_order. It reloads a
+# service only when its package appears in the change marker, which means it
+# was committed in this run. Unchanged packages are not touched.
+#
+# It only runs when openwrt_reload_services is true. Molecule turns this off
+# because the test container has no procd/ubus to reload services.
+- name: Apply changed UCI packages
+  ansible.builtin.raw: >-
+    if [ -r {{ openwrt_uci_change_marker | quote }} ] &&
+       grep -qx {{ item | quote }} {{ openwrt_uci_change_marker | quote }}; then
+      sh -c {{ openwrt_uci_apply_commands[item] | quote }} && echo APPLIED;
+    fi
+  loop: "{{ (openwrt_uci_apply_order + (openwrt_uci_apply_commands.keys() | list)) | unique | list }}"
+  loop_control:
+    label: "{{ item }}"
+  register: openwrt_apply
+  changed_when: "'APPLIED' in openwrt_apply.stdout"
+  when:
+    - openwrt_reload_services
+    - item in openwrt_uci_apply_commands

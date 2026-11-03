@@ -1,0 +1,110 @@
+---
+# Stage phase. Writes every desired UCI edit into the router's uncommitted
+# delta and shows the result. Nothing is committed here: main.yml commits only
+# after the operator approves the diff printed below.
+#
+# A failure anywhere in this file reverts the staged packages (see the rescue
+# block in main.yml).
+
+# Clear the marker of packages committed earlier. It is refilled at commit time.
+- name: Clear the changed-package marker
+  ansible.builtin.raw: ": > {{ openwrt_uci_change_marker | quote }}"
+  changed_when: false
+
+# main.yml's rescue block reverts staged packages only when this is true, so
+# nothing is reverted before the first edit is staged.
+- name: Mark staging as started
+  ansible.builtin.set_fact:
+    openwrt_uci_staging_started: true
+
+# Ownership records of the previous run that the desired state no longer has.
+# They are deleted by the rendered script below.
+- name: Work out what this role must prune
+  ansible.builtin.set_fact:
+    openwrt_uci_prune_sections: "{{ openwrt_uci_previous_sections | difference(openwrt_uci_desired_paths) }}"
+    openwrt_uci_prune_options: "{{ openwrt_uci_previous_options | difference(openwrt_uci_desired_option_paths) }}"
+
+- name: Create the work directory on the router
+  ansible.builtin.file:
+    path: "{{ openwrt_work_dir }}"
+    state: directory
+    mode: '0700'
+
+# The whole desired state goes into one script: removals, then every section
+# with its options and lists. Rendering a file keeps each command short, which
+# matters because dropbear rejects very long SSH commands.
+- name: Render the UCI staging script
+  ansible.builtin.template:
+    src: stage_uci.sh.j2
+    dest: "{{ openwrt_work_dir }}/stage_uci.sh"
+    mode: '0700'
+
+- name: Run the UCI staging script (edits stay uncommitted)
+  ansible.builtin.raw: "sh {{ openwrt_work_dir }}/stage_uci.sh"
+  register: openwrt_uci_stage
+  changed_when: "'CHANGED' in openwrt_uci_stage.stdout"
+
+# Packages with staged edits. `uci changes` lists only uncommitted changes,
+# so this is exactly the set the approval and the commit act on.
+- name: Capture proposed UCI changes
+  ansible.builtin.raw: "uci -q changes {{ item | quote }}"
+  loop: "{{ openwrt_uci_packages }}"
+  loop_control:
+    label: "{{ item }}"
+  register: openwrt_uci_proposed_diff
+  changed_when: false
+
+- name: Start an empty list of changed packages
+  ansible.builtin.set_fact:
+    openwrt_uci_changed_packages: []
+
+- name: Collect packages containing proposed changes
+  ansible.builtin.set_fact:
+    openwrt_uci_changed_packages: "{{ openwrt_uci_changed_packages + [item.item] }}"
+  loop: "{{ openwrt_uci_proposed_diff.results }}"
+  when: item.stdout | default('') | trim | length > 0
+  loop_control:
+    label: "{{ item.item }}"
+
+# Printed to the console so the operator can read the exact diff before typing yes.
+- name: Show proposed package diff
+  ansible.builtin.debug:
+    msg: "{{ item.item }}:\n{{ item.stdout | trim }}"
+  loop: "{{ openwrt_uci_proposed_diff.results }}"
+  when: item.stdout | trim | length > 0
+  loop_control:
+    label: "{{ item.item }}"
+
+# Only 'yes' counts as approval. An empty answer, which is what Ansible gets
+# without a terminal, is treated as no.
+- name: Ask for approval before committing UCI changes
+  ansible.builtin.pause:
+    prompt: "Review the proposed UCI diff above. Type 'yes' to apply these changes"
+  register: openwrt_uci_apply_approval
+  when:
+    - openwrt_manual_confirmation
+    - openwrt_uci_changed_packages | length > 0
+
+# Anything but 'yes' drops the staged edits, so the router keeps its committed config.
+- name: Discard staged UCI changes when approval is not explicit
+  ansible.builtin.raw: "uci revert {{ item | quote }}"
+  loop: "{{ openwrt_uci_changed_packages }}"
+  when:
+    - openwrt_manual_confirmation
+    - openwrt_uci_changed_packages | length > 0
+    - openwrt_uci_apply_approval.user_input | default('') | lower != 'yes'
+  loop_control:
+    label: "{{ item }}"
+  changed_when: false
+
+# Fails the play after the discard above, so the rescue block in main.yml runs
+# and the run stops before any commit.
+- name: Require explicit pre-apply approval
+  ansible.builtin.assert:
+    that:
+      - openwrt_uci_apply_approval.user_input | default('yes') | lower == 'yes'
+    fail_msg: "UCI changes were discarded because approval was not 'yes'."
+    quiet: true
+  when:
+    - openwrt_manual_confirmation
+    - openwrt_uci_changed_packages | length > 0

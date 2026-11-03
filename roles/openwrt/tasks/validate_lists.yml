@@ -1,0 +1,17 @@
+---
+# Called from validate_sections.yml once per section (loop variable: section).
+# Checks every list of one section: it must be a sequence of scalars, because
+# each value is written with `uci add_list` on its own.
+
+- name: Validate list values in {{ section.path }}
+  ansible.builtin.assert:
+    that:
+      - "item.value is sequence"
+      - "item.value is not string"
+      # Nested lists or dicts would be turned into garbage shell arguments.
+      - "item.value | reject('string') | reject('number') | reject('sameas', true) | reject('sameas', false) | list | length == 0"
+    fail_msg: "Each UCI list must be a sequence of scalar strings, numbers, or booleans."
+    quiet: true
+  loop: "{{ section.lists | default({}) | dict2items }}"
+  loop_control:
+    label: "{{ section.path }}.{{ item.key }}"

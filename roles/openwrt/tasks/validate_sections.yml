@@ -1,0 +1,23 @@
+---
+# Checks the desired section list before it is turned into shell commands or
+# ownership records: paths must be unique, and every list value must be a scalar.
+
+- name: Validate desired UCI section paths
+  ansible.builtin.assert:
+    that:
+      # Two sections with the same path would fight over one UCI address.
+      - openwrt_uci_sections | map(attribute='path') | unique | list | length == openwrt_uci_sections | length
+      # Only package.section identifiers are accepted.
+      - >-
+        openwrt_uci_sections | map(attribute='path')
+        | select('match', '^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$') | list | length
+        == openwrt_uci_sections | length
+    fail_msg: "UCI section paths must be unique named package.section identifiers."
+    quiet: true
+
+- name: Validate the list values of each section
+  ansible.builtin.include_tasks: validate_lists.yml
+  loop: "{{ openwrt_uci_sections }}"
+  loop_control:
+    loop_var: section
+    label: "{{ section.path }}"

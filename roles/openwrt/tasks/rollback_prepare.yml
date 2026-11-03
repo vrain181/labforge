@@ -1,0 +1,31 @@
+---
+# Included from main.yml when a network or firewall commit needs rollback
+# protection. It renders two shell scripts onto the router and runs the prepare
+# script, which snapshots the protected config and starts the timer. The timer
+# restores the snapshot unless rollback_confirm.yml runs before it fires.
+
+# The timer is a fixed script. The prepare script starts it with the snapshot
+# directory as its argument.
+- name: Render the rollback timer script
+  ansible.builtin.template:
+    src: rollback_timer.sh.j2
+    dest: "{{ openwrt_work_dir }}/rollback_timer.sh"
+    mode: '0700'
+
+- name: Render the rollback prepare script
+  ansible.builtin.template:
+    src: rollback_prepare.sh.j2
+    dest: "{{ openwrt_work_dir }}/rollback_prepare.sh"
+    mode: '0700'
+
+# The script prints RUN_DIR=<snapshot> and ARMED. ARMED is required, so a
+# failed start is reported as a change failure.
+- name: Create the snapshot, copy protected packages, and arm the timer
+  ansible.builtin.raw: "sh {{ openwrt_work_dir }}/rollback_prepare.sh"
+  register: openwrt_rollback_prepare
+  changed_when: "'ARMED' in openwrt_rollback_prepare.stdout"
+
+# The confirm step needs this path to find the snapshot and the timer's pid.
+- name: Remember the snapshot directory for the confirm step
+  ansible.builtin.set_fact:
+    openwrt_rollback_run_dir: "{{ openwrt_rollback_prepare.stdout | regex_findall('RUN_DIR=(/[A-Za-z0-9_./-]+)') | first }}"

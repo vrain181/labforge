@@ -1,0 +1,20 @@
+---
+# Checks that the generic baseline is applied. Network values belong to the
+# network scenario (molecule/network/verify.yml).
+- name: Verify
+  hosts: openwrt
+  gather_facts: false
+
+  tasks:
+    # The shell test fails the task when a value differs from the expected one.
+    - name: Check UCI values set by the baseline
+      ansible.builtin.raw: "[ \"$(uci -q get '{{ item.path }}')\" = '{{ item.expected }}' ]"
+      loop:
+        - { path: 'system.system.hostname', expected: 'OpenWrt' }
+        - { path: 'system.ntp.enabled', expected: '1' }
+        - { path: 'uhttpd.main.home', expected: '/www' }
+        - { path: 'rpcd.login.username', expected: 'root' }
+        - { path: 'attendedsysupgrade.server.url', expected: 'https://sysupgrade.openwrt.org' }
+      changed_when: false
+      loop_control:
+        label: "{{ item.path }}"

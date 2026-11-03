@@ -1,0 +1,16 @@
+---
+# Included from main.yml after the operator types yes at the reachability
+# prompt. Renders the confirm script and runs it. The script stops the timer and
+# deletes the snapshot, so the committed network/firewall config stays in place.
+
+- name: Render the rollback confirm script
+  ansible.builtin.template:
+    src: rollback_confirm.sh.j2
+    dest: "{{ openwrt_work_dir }}/rollback_confirm.sh"
+    mode: '0700'
+
+# CONFIRMED means the timer was stopped. Anything else fails this task.
+- name: Mark the snapshot confirmed and stop the timer
+  ansible.builtin.raw: "sh {{ openwrt_work_dir }}/rollback_confirm.sh"
+  register: openwrt_rollback_confirm_result
+  changed_when: "'CONFIRMED' in openwrt_rollback_confirm_result.stdout"

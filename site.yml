@@ -1,0 +1,69 @@
+---
+# Provisions the router. This playbook only selects the role and sets the
+# router's settings. Generic behaviour is in roles/openwrt; the network is in
+# inventory/group_vars/openwrt/network.yml.
+#
+# Run (with the router's SSH key):
+#   .venv/bin/ansible-playbook site.yml --private-key ~/.ssh/openwrt_ed25519
+#
+# Order of work:
+#   1. Back up the router to backups/ on the controller, before anything changes.
+#      This captures uncommitted UCI edits too.
+#   2. Check that SSH reaches the router. This uses raw, so it works before
+#      Python is installed.
+#   3. Install the Python runtime on the router. The role's template and file
+#      tasks need it. The step does nothing when it is present.
+#   4. Run the openwrt role (see roles/openwrt/tasks/main.yml for its phases).
+#   5. If everything succeeded, check the router is reachable and back it up again.
+- name: Provision OpenWrt router
+  hosts: openwrt
+  gather_facts: false
+
+  pre_tasks:
+    # First task. Before this, nothing has been changed on the router.
+    - name: Back up the router before any change
+      ansible.builtin.include_role:
+        name: openwrt
+        tasks_from: backup.yml
+      vars:
+        openwrt_backup_label: before
+      when: openwrt_backup_enabled
+
+    - name: Check that the host is reachable and runs a shell
+      ansible.builtin.raw: uname -a
+      register: uname_result
+      changed_when: false
+
+    # python3-light is minimal. The other packages supply the modules that
+    # Ansible's module runtime imports (idna codec, decimal, uuid, ctypes,
+    # urllib, logging). apk info -e exits non-zero when a package is missing,
+    # so the install runs once.
+    - name: Install the Python runtime that Ansible modules need
+      ansible.builtin.raw: >-
+        if ! apk info -e python3-light python3-codecs python3-decimal python3-uuid python3-ctypes python3-urllib python3-logging >/dev/null 2>&1; then
+          apk update && apk add python3-light python3-codecs python3-decimal python3-uuid python3-ctypes python3-urllib python3-logging && echo INSTALLED;
+        fi
+      register: openwrt_python_install
+      changed_when: "'INSTALLED' in openwrt_python_install.stdout"
+
+    - name: Show host identity
+      ansible.builtin.debug:
+        msg: "{{ uname_result.stdout | trim }}"
+
+  roles:
+    - openwrt
+
+  post_tasks:
+    # Runs only when every earlier task succeeded. A failed run leaves the
+    # "before" backup as the last good state.
+    - name: Confirm the router is still reachable after the changes
+      ansible.builtin.raw: uname -a
+      changed_when: false
+
+    - name: Back up the router after a successful run
+      ansible.builtin.include_role:
+        name: openwrt
+        tasks_from: backup.yml
+      vars:
+        openwrt_backup_label: after
+      when: openwrt_backup_enabled

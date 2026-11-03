@@ -1,0 +1,33 @@
+---
+# Network scenario: the same role on the same rootfs, with your network loaded
+# from inventory/group_vars/openwrt. This checks that the network architecture
+# converges and verifies on the test container.
+dependency:
+  name: galaxy
+
+driver:
+  name: docker
+
+platforms:
+  - name: openwrt-sim
+    # Set OPENWRT_IMAGE to override. CI uses the amd64 image; locally this is the arm64 one.
+    image: ${OPENWRT_IMAGE:-openwrt/rootfs:armsr-armv8}
+    pre_build_image: true
+    command: sleep infinity
+    groups:
+      - openwrt
+
+provisioner:
+  name: ansible
+  playbooks:
+    # The generic scenario's prepare step is the same for both.
+    prepare: ../default/prepare.yml
+    converge: converge.yml
+  inventory:
+    links:
+      # Loads inventory/group_vars/openwrt/{main,network}.yml. The router's SSH
+      # settings are in inventory/hosts.yml, so the test container does not inherit them.
+      group_vars: ../../inventory/group_vars
+
+verifier:
+  name: ansible

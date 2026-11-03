@@ -1,0 +1,25 @@
+---
+# Checks the network architecture from inventory/group_vars/openwrt/network.yml.
+# Each check compares one UCI value with the value your network requires.
+- name: Verify
+  hosts: openwrt
+  gather_facts: false
+
+  tasks:
+    # The shell test fails the task when a value differs from the expected one.
+    - name: Check UCI values set by the network architecture
+      ansible.builtin.raw: "[ \"$(uci -q get '{{ item.path }}')\" = '{{ item.expected }}' ]"
+      loop:
+        - { path: 'network.lan.gateway', expected: '192.168.178.1' }
+        - { path: 'network.vlan10.ipaddr', expected: '192.168.10.1' }
+        - { path: 'network.vlan30.ipaddr', expected: '192.168.30.1' }
+        - { path: 'dhcp.vlan10.dhcp_option', expected: '6,192.168.10.1' }
+        - { path: 'dhcp.vlan30.limit', expected: '150' }
+        - { path: 'firewall.wan.masq', expected: '1' }
+        - { path: 'firewall.vlan20_zone.forward', expected: 'REJECT' }
+        - { path: 'firewall.block_vlan10_router.dest_ip', expected: '192.168.178.3' }
+        - { path: 'firewall.allow_ping.icmp_type', expected: 'echo-request' }
+        - { path: 'dropbear.main.Port', expected: '22' }
+      changed_when: false
+      loop_control:
+        label: "{{ item.path }}"

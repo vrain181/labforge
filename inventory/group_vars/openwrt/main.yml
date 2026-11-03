@@ -1,0 +1,6 @@
+---
+# Settings for every router in the openwrt group.
+
+# Python is installed on the router by site.yml (pre_tasks), and by the Molecule
+# prepare playbook in the test container. Raw tasks do not need Python.
+ansible_python_interpreter: /usr/bin/python3

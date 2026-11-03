@@ -1,0 +1,31 @@
+---
+# Checks the rollback and path settings before anything is built or sent to the
+# router. The checks reject unsafe paths and rollback timers that are too short.
+
+- name: Validate UCI path and rollback controls
+  ansible.builtin.assert:
+    that:
+      # Paths are interpolated into shell commands, so only plain characters are allowed.
+      - openwrt_uci_manifest_path is match('^/[A-Za-z0-9_./-]+$')
+      - openwrt_uci_change_marker is match('^/[A-Za-z0-9_./-]+$')
+      - openwrt_rollback_state_dir is match('^/[A-Za-z0-9_./-]+$')
+      - openwrt_work_dir is match('^/[A-Za-z0-9_./-]+$')
+      # The operator needs at least 30 seconds to confirm before the timer rolls back.
+      - >-
+        openwrt_rollback_timeout | string is match('^[0-9]+$')
+        and openwrt_rollback_timeout | int >= 30
+    fail_msg: "Manifest, marker, work and rollback paths must be absolute safe paths; rollback timeout must be at least 30 seconds."
+    quiet: true
+
+- name: Validate protected package identifiers
+  ansible.builtin.assert:
+    that:
+      - openwrt_rollback_packages | unique | list | length == openwrt_rollback_packages | length
+      - >-
+        openwrt_rollback_packages
+        | select('match', '^[A-Za-z0-9_-]+$') | list | length
+        == openwrt_rollback_packages | length
+      # When rollback is on, the two packages that can cut off SSH must both be protected.
+      - "not openwrt_rollback_enabled or ('network' in openwrt_rollback_packages and 'firewall' in openwrt_rollback_packages)"
+    fail_msg: "Protected package names must be unique identifiers and include network and firewall when rollback is enabled."
+    quiet: true

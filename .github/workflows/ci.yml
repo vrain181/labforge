@@ -1,0 +1,81 @@
+---
+# Continuous integration for the OpenWrt Ansible project.
+#
+# lint:     YAML style, Ansible best practices (production profile), playbook
+#           syntax, and shellcheck over the scripts the role renders for the router.
+# molecule: converges the role on an OpenWrt rootfs container and runs verify and
+#           idempotence, for the generic baseline and for the network scenario.
+#           The container starts before anything is installed or tested.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install the lint and test tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Lint YAML
+        run: yamllint .
+
+      - name: Lint Ansible (production profile)
+        run: ansible-lint --profile production
+
+      - name: Check the playbook syntax
+        run: ansible-playbook site.yml --syntax-check
+
+      - name: Render the role's scripts and lint them with shellcheck
+        run: |
+          ansible-playbook tests/render_scripts.yml -e render_dir="$RUNNER_TEMP/rendered"
+          shellcheck -s sh -x "$RUNNER_TEMP"/rendered/*.sh
+
+  molecule:
+    runs-on: ubuntu-latest
+    env:
+      # The GitHub runners are amd64. The default scenario image is arm64.
+      OPENWRT_IMAGE: openwrt/rootfs:x86-64
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [default, network]
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install the lint and test tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Install the Ansible collections for molecule
+        run: ansible-galaxy collection install -r molecule/default/requirements.yml
+
+      - name: Pull the OpenWrt test image before testing
+        run: docker pull "$OPENWRT_IMAGE"
+
+      - name: Run molecule for the ${{ matrix.scenario }} scenario
+        run: molecule test -s ${{ matrix.scenario }}

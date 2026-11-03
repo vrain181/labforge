@@ -1,0 +1,271 @@
+---
+# ============================================================================
+# Generic OpenWrt baseline for the openwrt role.
+#
+# This file describes a stock OpenWrt router plus the role's own behaviour
+# (approval, rollback, which services to reload). It contains no network
+# architecture. Your network (VLANs, firewall rules, LAN/WAN addressing,
+# wireless, DHCP) belongs in inventory/group_vars/openwrt/network.yml.
+#
+# The variables below marked "site" are empty here and filled from group_vars.
+# ============================================================================
+
+# ---- Site inputs (empty here; set in inventory/group_vars) -------------------
+
+# Fixed UCI sections for this network, added on top of openwrt_uci_static_sections.
+# Same shape as the entries of openwrt_uci_static_sections.
+openwrt_site_sections: []
+
+# VLANs. Empty means no VLAN interfaces, DHCP pools, zones or uplink blocks are
+# generated. See network.yml for the shape of an entry.
+openwrt_vlans: []
+
+# Extra firewall rules, added as firewall.<id>. Empty means none are generated.
+openwrt_firewall_rules: []
+
+# Generic escape hatch for any UCI option not covered above. Each entry replaces
+# a section with the same path, or adds a new one.
+# Shape: {path: 'network.guest', type: interface, options: {...}, lists: {...}}
+openwrt_uci_custom_sections: []
+
+# ---- Behaviour ---------------------------------------------------------------
+
+# Restart or reload services after their config is committed. Molecule turns
+# this off because the container has no running procd/ubus.
+openwrt_reload_services: true
+
+# Require explicit approval of the staged UCI diff before committing. Set to
+# false only for non-interactive runs (Molecule does this).
+openwrt_manual_confirmation: true
+
+# Arm an on-device timer before committing network/firewall changes. If the
+# operator does not confirm reachability in time, the timer restores the
+# protected config files. See rollback_prepare.yml and rollback_confirm.yml.
+openwrt_rollback_enabled: true
+openwrt_rollback_timeout: 180
+openwrt_rollback_packages:
+  - network
+  - firewall
+
+# Services are applied in this order after UCI commits. A package without an
+# entry in openwrt_uci_apply_commands is committed but not reloaded.
+openwrt_uci_apply_order:
+  - network
+  - firewall
+  - dhcp
+  - system
+  - dropbear
+  - wireless
+  - uhttpd
+  - rpcd
+  - nlbwmon
+  - vnstat
+  - attendedsysupgrade
+
+openwrt_uci_apply_commands:
+  network: 'if [ -x /etc/init.d/network ]; then /etc/init.d/network reload; fi'
+  firewall: 'if [ -x /etc/init.d/firewall ]; then /etc/init.d/firewall reload; fi'
+  dhcp: 'if [ -x /etc/init.d/dnsmasq ]; then /etc/init.d/dnsmasq restart; fi; if [ -x /etc/init.d/odhcpd ]; then /etc/init.d/odhcpd restart; fi'
+  system: 'if [ -x /etc/init.d/system ]; then /etc/init.d/system reload; fi'
+  dropbear: 'if [ -x /etc/init.d/dropbear ]; then /etc/init.d/dropbear restart; fi'
+  wireless: 'if command -v wifi >/dev/null 2>&1; then wifi reload; fi'
+  uhttpd: 'if [ -x /etc/init.d/uhttpd ]; then /etc/init.d/uhttpd restart; fi'
+  rpcd: 'if [ -x /etc/init.d/rpcd ]; then /etc/init.d/rpcd restart; fi'
+  nlbwmon: 'if [ -x /etc/init.d/nlbwmon ]; then /etc/init.d/nlbwmon restart; fi'
+  vnstat: 'if [ -x /etc/init.d/vnstat ]; then /etc/init.d/vnstat restart; fi'
+
+# ---- Paths on the router and on the Ansible controller -----------------------
+
+# Snapshot directories for rollback live under this base path.
+openwrt_rollback_state_dir: /tmp/openwrt-ansible-rollback
+# Ownership record of the sections and options this role manages. Used to prune
+# what a previous run created but the current configuration no longer wants.
+openwrt_uci_manifest_path: /etc/openwrt-ansible-managed-sections
+# Packages committed in the current run, read by the reload handler.
+openwrt_uci_change_marker: /tmp/openwrt-ansible-changed-packages
+# Scratch directory on the router for the rendered shell scripts and backups.
+openwrt_work_dir: /tmp/openwrt-ansible
+
+# Backups of the router, copied to the controller (see tasks/backup.yml).
+# Taken before and after every playbook run. Disable only for test containers.
+openwrt_backup_enabled: true
+openwrt_backup_dir: "{{ playbook_dir }}/backups"
+
+# ============================================================================
+# Stock OpenWrt sections. Each entry is one UCI section:
+#   path         uci address (package.section, or package.@type[index])
+#   legacy_path  optional anonymous section already on the router; it is renamed
+#                to the name in path instead of creating a second section
+#   type         section type, used to create and validate the section
+#   options      key/value pairs written with `uci set`
+#   lists        key/value pairs written with `uci add_list`
+#
+# Not managed: dropbear/uhttpd key and certificate files, /etc/shadow and passwd
+# (secrets), and non-UCI files such as rc.local, sysctl.conf and nftables.d.
+# ============================================================================
+openwrt_uci_static_sections:
+  # --- system ----------------------------------------------------------------
+  - path: 'system.system'
+    legacy_path: 'system.@system[0]'
+    type: system
+    options:
+      hostname: 'OpenWrt'
+      timezone: 'GMT0'
+      zonename: 'UTC'
+      ttylogin: '0'
+      log_size: '128'
+      urandom_seed: '0'
+
+  - path: 'system.ntp'
+    type: timeserver
+    options:
+      enabled: '1'
+      enable_server: '0'
+    lists:
+      server:
+        - '0.openwrt.pool.ntp.org'
+        - '1.openwrt.pool.ntp.org'
+        - '2.openwrt.pool.ntp.org'
+        - '3.openwrt.pool.ntp.org'
+
+  # --- network (loopback only; LAN/WAN belong to the site) -------------------
+  - path: 'network.loopback'
+    type: interface
+    options:
+      device: 'lo'
+      proto: 'static'
+    lists:
+      ipaddr:
+        - '127.0.0.1/8'
+
+  # --- uhttpd (LuCI web server) ----------------------------------------------
+  - path: 'uhttpd.main'
+    type: uhttpd
+    options:
+      redirect_https: '0'
+      home: '/www'
+      rfc1918_filter: '1'
+      max_requests: '3'
+      max_connections: '100'
+      cert: '/etc/uhttpd.crt'
+      key: '/etc/uhttpd.key'
+      cgi_prefix: '/cgi-bin'
+      script_timeout: '60'
+      network_timeout: '30'
+      http_keepalive: '20'
+      tcp_keepalive: '1'
+      ubus_prefix: '/ubus'
+    lists:
+      listen_http:
+        - '0.0.0.0:80'
+        - '[::]:80'
+      listen_https:
+        - '0.0.0.0:443'
+        - '[::]:443'
+      lua_prefix:
+        - '/cgi-bin/luci=/usr/lib/lua/luci/sgi/uhttpd.lua'
+
+  - path: 'uhttpd.defaults'
+    type: cert
+    options:
+      days: '397'
+      key_type: 'ec'
+      bits: '2048'
+      ec_curve: 'P-256'
+      country: 'ZZ'
+      state: 'Somewhere'
+      location: 'Unknown'
+      commonname: 'OpenWrt'
+
+  # --- luci ------------------------------------------------------------------
+  - path: 'luci.main'
+    type: core
+    options:
+      lang: 'auto'
+      mediaurlbase: '/luci-static/bootstrap'
+      resourcebase: '/luci-static/resources'
+      ubuspath: '/ubus/'
+
+  - path: 'luci.flash_keep'
+    type: extern
+    options:
+      uci: '/etc/config/'
+      dropbear: '/etc/dropbear/'
+      openvpn: '/etc/openvpn/'
+      passwd: '/etc/passwd'
+      opkg: '/etc/opkg.conf'
+      firewall: '/etc/firewall.user'
+      uploads: '/lib/uci/upload/'
+
+  - path: 'luci.languages'
+    type: internal
+
+  - path: 'luci.sauth'
+    type: internal
+    options:
+      sessionpath: '/tmp/luci-sessions'
+      sessiontime: '3600'
+
+  - path: 'luci.ccache'
+    type: internal
+    options:
+      enable: '1'
+
+  - path: 'luci.themes'
+    type: internal
+    options:
+      Bootstrap: '/luci-static/bootstrap'
+      BootstrapDark: '/luci-static/bootstrap-dark'
+      BootstrapLight: '/luci-static/bootstrap-light'
+
+  - path: 'luci.apply'
+    type: internal
+    options:
+      rollback: '90'
+      holdoff: '4'
+      timeout: '5'
+      display: '1.5'
+
+  - path: 'luci.diag'
+    type: internal
+    options:
+      dns: 'openwrt.org'
+      ping: 'openwrt.org'
+      route: 'openwrt.org'
+
+  # --- rpcd (ubus access for LuCI; login uses the root password hash) -------
+  - path: 'rpcd.rpcd'
+    legacy_path: 'rpcd.@rpcd[0]'
+    type: rpcd
+    options:
+      socket: '/var/run/ubus/ubus.sock'
+      timeout: '30'
+
+  - path: 'rpcd.login'
+    legacy_path: 'rpcd.@login[0]'
+    type: login
+    options:
+      username: 'root'
+      password: '$p$root'
+    lists:
+      read:
+        - '*'
+      write:
+        - '*'
+
+  # --- attendedsysupgrade (default upgrade server) --------------------------
+  - path: 'attendedsysupgrade.server'
+    type: server
+    options:
+      url: 'https://sysupgrade.openwrt.org'
+
+  - path: 'attendedsysupgrade.client'
+    type: client
+    options:
+      upgrade_packages: '1'
+      auto_search: '0'
+      advanced_mode: '0'
+      login_check_for_upgrades: '1'
+
+  - path: 'attendedsysupgrade.owut'
+    type: owut

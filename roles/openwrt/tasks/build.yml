@@ -1,0 +1,172 @@
+---
+# Builds openwrt_uci_sections, the complete list of UCI sections this run wants.
+# It is assembled in this order:
+#
+#   1. openwrt_uci_static_sections  generic OpenWrt baseline (defaults/main.yml)
+#   2. openwrt_site_sections        fixed sections of this network (group_vars)
+#   3. openwrt_uci_generated        sections generated from openwrt_vlans and
+#                                   openwrt_firewall_rules (this file)
+#   4. openwrt_uci_custom_sections  replace a section by path, or add one
+#
+# Generated sections exist only when their input variable is set. With
+# openwrt_vlans and openwrt_firewall_rules empty, this file produces nothing
+# and the router gets the baseline and the site sections only.
+
+- name: Start with an empty list of generated sections
+  ansible.builtin.set_fact:
+    openwrt_uci_generated: []
+
+# ---- VLANs ------------------------------------------------------------------
+# Every VLAN task below is skipped when openwrt_vlans is empty.
+
+- name: Add network device and interface for each VLAN
+  ansible.builtin.set_fact:
+    openwrt_uci_generated: >-
+      {{ openwrt_uci_generated + [
+           {'path': 'network.' ~ vlan_name ~ '_dev', 'type': 'device',
+            'options': {'type': '8021q', 'ifname': openwrt_trunk, 'vid': vlan.id | string}},
+           {'path': 'network.' ~ vlan_name, 'type': 'interface',
+            'options': {'device': vlan_device, 'proto': 'static', 'ipaddr': vlan.address,
+                        'netmask': vlan.netmask, 'multipath': 'off'}
+                        | combine(vlan.options | default({})),
+            'lists': vlan.lists | default({})}
+         ] }}
+  loop: "{{ openwrt_vlans }}"
+  when: openwrt_vlans | length > 0
+  loop_control:
+    loop_var: vlan
+    label: "VLAN {{ vlan.id }}"
+  vars:
+    vlan_name: "{{ vlan.name | default('vlan' ~ vlan.id) }}"
+    vlan_device: "{{ openwrt_trunk ~ '.' ~ vlan.id }}"
+
+- name: Add DHCP pool for each VLAN that has a dhcp key
+  ansible.builtin.set_fact:
+    openwrt_uci_generated: >-
+      {{ openwrt_uci_generated + [
+           {'path': 'dhcp.' ~ vlan_name, 'type': 'dhcp',
+            'options': {'interface': vlan_name, 'start': vlan.dhcp.start | string,
+                        'limit': vlan.dhcp.limit | string,
+                        'leasetime': vlan.dhcp.leasetime | default('12h'),
+                        'dhcpv4': 'server'}
+                        | combine(vlan.dhcp.options | default({})),
+            'lists': {'dhcp_option': vlan.dhcp.dhcp_options | default([])}
+                     | combine(vlan.dhcp.lists | default({}))}
+         ] }}
+  loop: "{{ openwrt_vlans }}"
+  when: openwrt_vlans | length > 0 and vlan.dhcp is defined
+  loop_control:
+    loop_var: vlan
+    label: "VLAN {{ vlan.id }}"
+  vars:
+    vlan_name: "{{ vlan.name | default('vlan' ~ vlan.id) }}"
+
+- name: Add firewall zone for each VLAN
+  ansible.builtin.set_fact:
+    openwrt_uci_generated: >-
+      {{ openwrt_uci_generated + [
+           {'path': 'firewall.' ~ vlan_name ~ '_zone', 'type': 'zone',
+            'options': {'name': vlan_name, 'input': 'ACCEPT', 'output': 'ACCEPT',
+                        'forward': vlan.zone_forward | default('REJECT')}
+                        | combine(vlan.zone_options | default({})),
+            'lists': {'network': [vlan_name]} | combine(vlan.zone_lists | default({}))}
+         ] }}
+  loop: "{{ openwrt_vlans }}"
+  when: openwrt_vlans | length > 0
+  loop_control:
+    loop_var: vlan
+    label: "VLAN {{ vlan.id }}"
+  vars:
+    vlan_name: "{{ vlan.name | default('vlan' ~ vlan.id) }}"
+
+- name: Allow forwarding from each VLAN to the upstream zone
+  ansible.builtin.set_fact:
+    openwrt_uci_generated: >-
+      {{ openwrt_uci_generated + [
+           {'path': 'firewall.' ~ vlan_name ~ '_to_upstream', 'type': 'forwarding',
+            'options': {'src': vlan_name, 'dest': 'upstream'},
+            'legacy_path': vlan.uplink_forward_legacy_path | default('')}
+         ] }}
+  loop: "{{ openwrt_vlans }}"
+  when: openwrt_vlans | length > 0 and vlan.allow_uplink | default(true)
+  loop_control:
+    loop_var: vlan
+    label: "VLAN {{ vlan.id }}"
+  vars:
+    vlan_name: "{{ vlan.name | default('vlan' ~ vlan.id) }}"
+
+- name: Block each VLAN from the uplink network
+  ansible.builtin.set_fact:
+    openwrt_uci_generated: >-
+      {{ openwrt_uci_generated + [
+           {'path': 'firewall.block_' ~ vlan_name ~ '_upstream', 'type': 'rule',
+            'options': {'name': 'Block VLAN' ~ vlan.id ~ ' to ' ~ openwrt_uplink_network,
+                        'src': vlan_name, 'dest': 'upstream', 'dest_ip': openwrt_uplink_network,
+                        'family': 'ipv4', 'proto': 'all', 'target': 'REJECT'}}
+         ] }}
+  loop: "{{ openwrt_vlans }}"
+  when: openwrt_vlans | length > 0 and vlan.block_uplink_network | default(true)
+  loop_control:
+    loop_var: vlan
+    label: "VLAN {{ vlan.id }}"
+  vars:
+    vlan_name: "{{ vlan.name | default('vlan' ~ vlan.id) }}"
+
+- name: Block each VLAN from the uplink router address
+  ansible.builtin.set_fact:
+    openwrt_uci_generated: >-
+      {{ openwrt_uci_generated + [
+           {'path': 'firewall.block_' ~ vlan_name ~ '_router', 'type': 'rule',
+            'options': {'name': 'Block VLAN' ~ vlan.id ~ ' to upstream router IP',
+                        'src': vlan_name, 'dest_ip': openwrt_uplink_router_ip,
+                        'family': 'ipv4', 'proto': 'all', 'target': 'REJECT'}}
+         ] }}
+  loop: "{{ openwrt_vlans }}"
+  when: openwrt_vlans | length > 0 and vlan.block_uplink_router | default(true)
+  loop_control:
+    loop_var: vlan
+    label: "VLAN {{ vlan.id }}"
+  vars:
+    vlan_name: "{{ vlan.name | default('vlan' ~ vlan.id) }}"
+
+# ---- Firewall rules ---------------------------------------------------------
+
+- name: Add custom firewall rules
+  ansible.builtin.set_fact:
+    openwrt_uci_generated: >-
+      {{ openwrt_uci_generated + [
+           {'path': 'firewall.' ~ rule.id, 'type': 'rule',
+            'options': rule.options | default({}), 'lists': rule.lists | default({}),
+            'legacy_path': rule.legacy_path | default('')}
+         ] }}
+  loop: "{{ openwrt_firewall_rules }}"
+  when: openwrt_firewall_rules | length > 0
+  loop_control:
+    loop_var: rule
+    label: "{{ rule.id }}"
+
+# ---- Merge -------------------------------------------------------------------
+
+- name: Merge baseline, site and generated sections
+  ansible.builtin.set_fact:
+    openwrt_uci_sections: "{{ openwrt_uci_static_sections + openwrt_site_sections + openwrt_uci_generated }}"
+
+# A custom section with the same path replaces the existing one. The replaced
+# section moves to the end of the list, which does not change the result.
+- name: Replace a fixed or generated section with its custom definition
+  ansible.builtin.set_fact:
+    openwrt_uci_sections: >-
+      {{ (openwrt_uci_sections | rejectattr('path', 'equalto', item.path) | list) + [item] }}
+  loop: "{{ openwrt_uci_custom_sections }}"
+  when: item.path in (openwrt_uci_sections | map(attribute='path') | list)
+  loop_control:
+    label: "{{ item.path }}"
+
+# A custom section with a new path is appended.
+- name: Add custom UCI sections
+  ansible.builtin.set_fact:
+    openwrt_uci_sections: "{{ openwrt_uci_sections + [item] }}"
+  loop: "{{ openwrt_uci_custom_sections }}"
+  when: item.path not in (openwrt_uci_sections | map(attribute='path') | list)
+  loop_control:
+    label: "{{ item.path }}"

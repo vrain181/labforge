@@ -1,0 +1,37 @@
+---
+# Prepares the bare OpenWrt rootfs so it behaves like a freshly flashed router.
+# Shared with the network scenario.
+- name: Prepare OpenWrt rootfs like a freshly flashed router
+  hosts: openwrt
+  gather_facts: false
+
+  tasks:
+    # Same package set as site.yml pre_tasks. python3-light is minimal, so the
+    # other packages supply the modules Ansible's module runtime imports.
+    - name: Install the Python runtime that Ansible modules need
+      ansible.builtin.raw: >-
+        if ! apk info -e python3-light python3-codecs python3-decimal python3-uuid python3-ctypes python3-urllib python3-logging >/dev/null 2>&1; then
+          apk update && apk add python3-light python3-codecs python3-decimal python3-uuid python3-ctypes python3-urllib python3-logging && echo INSTALLED;
+        fi
+      register: openwrt_python_install
+      changed_when: "'INSTALLED' in openwrt_python_install.stdout"
+
+    # A flashed router always has these config files. The rootfs does not, and
+    # without them `uci changes` fails for those packages. An empty file is
+    # enough for uci: it treats the package as having no options.
+    - name: Create the default UCI config files
+      ansible.builtin.raw: "test -e /etc/config/{{ item }} || touch /etc/config/{{ item }}"
+      loop:
+        - system
+        - network
+        - dhcp
+        - firewall
+        - dropbear
+        - wireless
+        - uhttpd
+        - luci
+        - rpcd
+        - nlbwmon
+        - attendedsysupgrade
+        - vnstat
+      changed_when: false

@@ -1,0 +1,73 @@
+---
+# Backs up the router to the controller. site.yml includes it twice:
+#   - as the first task, before anything changes (label: before). It captures
+#     the committed config and any uncommitted UCI edits, so nothing is lost
+#     if this run changes or discards them;
+#   - after a successful run (label: after). It captures the state this run
+#     produced.
+#
+# Each backup is three files in backups/<host>/ on the controller:
+#   <label>-<time>.tar.gz            sysupgrade -b archive of /etc/config and more
+#   <label>-<time>-uncommitted.txt   output of `uci changes` (uncommitted edits)
+#   <label>-<time>-delta.tar.gz      the uncommitted delta store in /tmp/.uci
+#
+# The archives contain secrets: the root password hash, dropbear host keys and
+# authorized_keys. backups/ is git-ignored and the files are owner-only.
+
+- name: Set the backup name for this run
+  ansible.builtin.set_fact:
+    openwrt_backup_name: "{{ openwrt_backup_label }}-{{ now(utc=false).strftime('%Y%m%d-%H%M%S') }}"
+
+- name: Create the archives on the router
+  ansible.builtin.raw: |
+    set -e
+    mkdir -p {{ (openwrt_work_dir ~ '/backup') | quote }}
+    # sysupgrade -b archives the config files listed in /etc/sysupgrade.conf
+    # plus the dropbear keys and the password file.
+    sysupgrade -q -b {{ (openwrt_work_dir ~ '/backup/' ~ openwrt_backup_name ~ '.tar.gz') | quote }}
+    # `uci changes` lists uncommitted edits. sysupgrade -b does not include them.
+    uci -q changes > {{ (openwrt_work_dir ~ '/backup/' ~ openwrt_backup_name ~ '-uncommitted.txt') | quote }} || true
+    # The uncommitted delta lives in /tmp/.uci. Archive it even when empty.
+    [ -d /tmp/.uci ] || mkdir -p /tmp/.uci
+    tar -czf {{ (openwrt_work_dir ~ '/backup/' ~ openwrt_backup_name ~ '-delta.tar.gz') | quote }} -C /tmp .uci
+    echo BACKUP_OK
+  register: openwrt_backup_remote
+  changed_when: false
+
+- name: Create the backup directory on the controller
+  ansible.builtin.file:
+    path: "{{ openwrt_backup_dir }}/{{ inventory_hostname }}"
+    state: directory
+    mode: '0700'
+  delegate_to: localhost
+  become: false
+
+# `fetch` copies each archive to the controller. flat keeps the file names.
+- name: Copy the backup files to the controller
+  ansible.builtin.fetch:
+    src: "{{ openwrt_work_dir }}/backup/{{ openwrt_backup_name }}{{ item }}"
+    dest: "{{ openwrt_backup_dir }}/{{ inventory_hostname }}/"
+    flat: true
+  loop:
+    - '.tar.gz'
+    - '-uncommitted.txt'
+    - '-delta.tar.gz'
+  loop_control:
+    label: "{{ openwrt_backup_name }}{{ item }}"
+
+- name: Keep the backup files owner-only on the controller
+  ansible.builtin.file:
+    path: "{{ openwrt_backup_dir }}/{{ inventory_hostname }}/{{ openwrt_backup_name }}{{ item }}"
+    mode: '0600'
+  delegate_to: localhost
+  become: false
+  loop:
+    - '.tar.gz'
+    - '-uncommitted.txt'
+    - '-delta.tar.gz'
+  loop_control:
+    label: "{{ openwrt_backup_name }}{{ item }}"
+
+- name: Report where the backup was saved
+  ansible.builtin.debug:
+    msg: "Backup saved to {{ openwrt_backup_dir }}/{{ inventory_hostname }}/{{ openwrt_backup_name }}.tar.gz"

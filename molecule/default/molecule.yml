@@ -1,0 +1,43 @@
+---
+# Generic scenario: the openwrt role on a stock OpenWrt rootfs, with only the
+# baseline in roles/openwrt/defaults/main.yml. No network architecture is loaded.
+# The network scenario (molecule/network) runs the same role with your network.
+dependency:
+  name: galaxy
+
+driver:
+  name: docker
+
+platforms:
+  - name: openwrt-sim
+    # OpenWrt's own arm64 rootfs. It has uci, ubus, apk and /etc/init.d, and
+    # runs without QEMU or KVM. Use openwrt/rootfs:x86-64 on amd64 hosts.
+    # Set OPENWRT_IMAGE to override. CI uses the amd64 image; locally this is the arm64 one.
+    image: ${OPENWRT_IMAGE:-openwrt/rootfs:armsr-armv8}
+    pre_build_image: true
+    # Keep the container alive. The rootfs has no init, and the role only
+    # needs a shell.
+    command: sleep infinity
+    groups:
+      - openwrt
+
+provisioner:
+  name: ansible
+  playbooks:
+    # prepare.yml installs python3-light and creates the stock UCI config files.
+    prepare: prepare.yml
+    converge: converge.yml
+  inventory:
+    group_vars:
+      openwrt:
+        # Non-interactive test run: no approval prompt, and no services or procd to reload.
+        openwrt_manual_confirmation: false
+        openwrt_reload_services: false
+        openwrt_rollback_enabled: false
+        # No router to back up in the test container.
+        openwrt_backup_enabled: false
+        # The Molecule container has python3-light after prepare.yml.
+        ansible_python_interpreter: /usr/bin/python3
+
+verifier:
+  name: ansible

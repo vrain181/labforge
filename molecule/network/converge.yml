@@ -1,0 +1,23 @@
+---
+# Converges the same playbook as the router, with your network loaded from
+# inventory/group_vars/openwrt (linked by molecule.yml).
+
+# Non-interactive test run. Set as host facts, because the linked group_vars
+# directory would not override Molecule's own group_vars. Host facts take
+# precedence over group_vars. There is no terminal for the approval prompt, and
+# the test container has no procd/ubus to reload services or run rollback.
+- name: Test overrides for the network scenario
+  hosts: openwrt
+  gather_facts: false
+
+  tasks:
+    - name: Disable approval, service reloads and rollback in the test container
+      ansible.builtin.set_fact:
+        openwrt_manual_confirmation: false
+        openwrt_reload_services: false
+        openwrt_rollback_enabled: false
+        openwrt_backup_enabled: false
+
+# Runs the same playbook as the router, so the test covers the real entry point.
+- name: Converge
+  import_playbook: ../../site.yml

@@ -1,0 +1,369 @@
+---
+# ============================================================================
+# VrainLab Network architecture. This file adds the network on top of the generic
+# baseline defined in the role.
+#
+# Used by the playbook (site.yml) and by Molecule's network scenario.
+# ============================================================================
+
+# Physical port that carries the VLAN tags. VLAN devices are <trunk>.<id>.
+openwrt_trunk: eth0
+
+# Uplink to the upstream network: the "lan" interface and the "upstream" zone.
+# The VLAN block rules refer to these values.
+openwrt_uplink_address: 192.168.178.3/24
+openwrt_uplink_gateway: 192.168.178.1
+openwrt_uplink_network: 192.168.178.0/24
+openwrt_uplink_router_ip: 192.168.178.3
+
+# ---- VLANs ------------------------------------------------------------------
+# One entry per VLAN. For each entry the role generates: a network device
+# (<trunk>.<id>) and interface, a firewall zone, a forwarding to the upstream
+# zone, and block rules. A DHCP pool is generated only when `dhcp` is set.
+#   id                   VLAN tag (required, unique)
+#   name                 UCI network/zone name (default: vlan<id>)
+#   address              router address inside the VLAN (required)
+#   netmask              (required)
+#   dhcp                 DHCP pool on this VLAN; omit the key to serve no DHCP
+#     start, limit       pool range as offset from the network address
+#     leasetime          e.g. 12h
+#     dhcp_options       raw DHCP options, e.g. '6,192.168.10.1' (DNS server)
+#   zone_forward         ACCEPT or REJECT, forwarding policy of the VLAN zone
+#   allow_uplink         forward VLAN traffic to the upstream zone (default true)
+#   block_uplink_network reject VLAN traffic to openwrt_uplink_network (default true)
+#   block_uplink_router  reject VLAN traffic to openwrt_uplink_router_ip (default true)
+#   uplink_forward_legacy_path  anonymous forwarding already on the router to rename
+openwrt_vlans:
+  - id: 10
+    address: '192.168.10.1'
+    netmask: '255.255.255.0'
+    dhcp:
+      start: 100
+      limit: 150
+      leasetime: '12h'
+      dhcp_options:
+        - '6,192.168.10.1'
+    zone_forward: 'ACCEPT'
+    allow_uplink: true
+    uplink_forward_legacy_path: 'firewall.@forwarding[0]'
+    block_uplink_network: true
+    block_uplink_router: true
+
+  - id: 20
+    address: '192.168.20.1'
+    netmask: '255.255.255.0'
+    dhcp:
+      start: 100
+      limit: 150
+      leasetime: '12h'
+    zone_forward: 'REJECT'
+    allow_uplink: true
+    block_uplink_network: true
+    block_uplink_router: true
+
+  - id: 30
+    address: '192.168.30.1'
+    netmask: '255.255.255.0'
+    dhcp:
+      start: 100
+      limit: 150
+      leasetime: '12h'
+    zone_forward: 'REJECT'
+    allow_uplink: true
+    block_uplink_network: true
+    block_uplink_router: true
+
+# ---- Firewall rules ---------------------------------------------------------
+# Extra rules, added as firewall.<id>. Keys under options are passed to UCI
+# as-is. Lists go under lists. These are the WAN rules from the backup.
+openwrt_firewall_rules:
+  - id: allow_dhcp_renew
+    legacy_path: 'firewall.@rule[0]'
+    options:
+      name: 'Allow-DHCP-Renew'
+      src: 'wan'
+      proto: 'udp'
+      dest_port: '68'
+      target: 'ACCEPT'
+      family: 'ipv4'
+
+  - id: allow_ping
+    legacy_path: 'firewall.@rule[1]'
+    options:
+      name: 'Allow-Ping'
+      src: 'wan'
+      proto: 'icmp'
+      icmp_type: 'echo-request'
+      family: 'ipv4'
+      target: 'ACCEPT'
+
+  - id: allow_igmp
+    legacy_path: 'firewall.@rule[2]'
+    options:
+      name: 'Allow-IGMP'
+      src: 'wan'
+      proto: 'igmp'
+      family: 'ipv4'
+      target: 'ACCEPT'
+
+  - id: allow_dhcpv6
+    legacy_path: 'firewall.@rule[3]'
+    options:
+      name: 'Allow-DHCPv6'
+      src: 'wan'
+      proto: 'udp'
+      dest_port: '546'
+      family: 'ipv6'
+      target: 'ACCEPT'
+
+  - id: allow_mld
+    legacy_path: 'firewall.@rule[4]'
+    options:
+      name: 'Allow-MLD'
+      src: 'wan'
+      proto: 'icmp'
+      src_ip: 'fe80::/10'
+      family: 'ipv6'
+      target: 'ACCEPT'
+    lists:
+      icmp_type:
+        - '130/0'
+        - '131/0'
+        - '132/0'
+        - '143/0'
+
+  - id: allow_icmpv6_input
+    legacy_path: 'firewall.@rule[5]'
+    options:
+      name: 'Allow-ICMPv6-Input'
+      src: 'wan'
+      proto: 'icmp'
+      limit: '1000/sec'
+      family: 'ipv6'
+      target: 'ACCEPT'
+    lists:
+      icmp_type:
+        - 'echo-request'
+        - 'echo-reply'
+        - 'destination-unreachable'
+        - 'packet-too-big'
+        - 'time-exceeded'
+        - 'bad-header'
+        - 'unknown-header-type'
+        - 'router-solicitation'
+        - 'neighbour-solicitation'
+        - 'router-advertisement'
+        - 'neighbour-advertisement'
+
+  - id: allow_icmpv6_forward
+    legacy_path: 'firewall.@rule[6]'
+    options:
+      name: 'Allow-ICMPv6-Forward'
+      src: 'wan'
+      dest: '*'
+      proto: 'icmp'
+      limit: '1000/sec'
+      family: 'ipv6'
+      target: 'ACCEPT'
+    lists:
+      icmp_type:
+        - 'echo-request'
+        - 'echo-reply'
+        - 'destination-unreachable'
+        - 'packet-too-big'
+        - 'time-exceeded'
+        - 'bad-header'
+        - 'unknown-header-type'
+
+# ---- Fixed sections for this network ---------------------------------------
+# Added to the generic baseline in roles/openwrt/defaults/main.yml.
+# Note: Paths must be unique across the baseline, these sections, generated
+# sections and custom sections.
+openwrt_site_sections:
+  # --- network ---------------------------------------------------------------
+  - path: 'network.globals'
+    type: globals
+    options:
+      dhcp_default_duid: '00040e1402a52ccc4a6d8549faeb8450c0a7'
+      ula_prefix: 'fdaa:df67:c8e6::/48'
+      packet_steering: '1'
+
+  - path: 'network.br_lan'
+    legacy_path: 'network.@device[0]'
+    type: device
+    options:
+      name: 'br-lan'
+      type: 'bridge'
+    lists:
+      ports:
+        - '{{ openwrt_trunk }}'
+
+  - path: 'network.lan'
+    type: interface
+    options:
+      device: 'br-lan'
+      proto: 'static'
+      ip6assign: '60'
+      gateway: '{{ openwrt_uplink_gateway }}'
+      multipath: 'off'
+    lists:
+      ipaddr:
+        - '{{ openwrt_uplink_address }}'
+
+  # --- dhcp ------------------------------------------------------------------
+  - path: 'dhcp.dnsmasq'
+    legacy_path: 'dhcp.@dnsmasq[0]'
+    type: dnsmasq
+    options:
+      domainneeded: '1'
+      boguspriv: '1'
+      filterwin2k: '0'
+      localise_queries: '1'
+      rebind_protection: '1'
+      rebind_localhost: '1'
+      local: '/lan/'
+      domain: 'lan'
+      expandhosts: '1'
+      nonegcache: '0'
+      cachesize: '1000'
+      authoritative: '1'
+      readethers: '1'
+      leasefile: '/tmp/dhcp.leases'
+      resolvfile: '/tmp/resolv.conf.d/resolv.conf.auto'
+      nonwildcard: '1'
+      localservice: '1'
+      ednspacket_max: '1232'
+      filter_aaaa: '0'
+      filter_a: '0'
+    lists:
+      server:
+        - '1.1.1.1'
+        - '8.8.8.8'
+
+  - path: 'dhcp.lan'
+    type: dhcp
+    options:
+      interface: 'lan'
+      start: '100'
+      limit: '100'
+      leasetime: '12h'
+      dhcpv4: 'server'
+      dhcpv6: 'server'
+      ra: 'server'
+      ra_preference: 'medium'
+    lists:
+      ra_flags:
+        - 'managed-config'
+        - 'other-config'
+
+  - path: 'dhcp.wan'
+    type: dhcp
+    options:
+      interface: 'wan'
+      ignore: '1'
+
+  - path: 'dhcp.odhcpd'
+    type: odhcpd
+    options:
+      maindhcp: '0'
+      leasefile: '/tmp/odhcpd.leases'
+      leasetrigger: '/usr/sbin/odhcpd-update'
+      loglevel: '4'
+      piodir: '/tmp/odhcpd-piodir'
+      hostsdir: '/tmp/hosts'
+
+  # --- dropbear (SSH) --------------------------------------------------------
+  # PasswordAuth/RootPasswordAuth are kept as in the backup. Turn them off once
+  # key-based login to root works.
+  - path: 'dropbear.main'
+    type: dropbear
+    options:
+      enable: '1'
+      PasswordAuth: 'on'
+      RootPasswordAuth: 'on'
+      Port: '22'
+
+  # --- firewall --------------------------------------------------------------
+  - path: 'firewall.defaults'
+    legacy_path: 'firewall.@defaults[0]'
+    type: defaults
+    options:
+      syn_flood: '1'
+      input: 'REJECT'
+      output: 'ACCEPT'
+      forward: 'REJECT'
+
+  - path: 'firewall.wan'
+    legacy_path: 'firewall.@zone[1]'
+    type: zone
+    options:
+      name: 'wan'
+      input: 'REJECT'
+      output: 'ACCEPT'
+      forward: 'DROP'
+      masq: '1'
+      mtu_fix: '1'
+    lists:
+      network:
+        - 'wan'
+        - 'wan6'
+
+  - path: 'firewall.upstream_zone'
+    type: zone
+    options:
+      name: 'upstream'
+      input: 'ACCEPT'
+      output: 'ACCEPT'
+      forward: 'REJECT'
+      masq: '1'
+      mtu_fix: '1'
+    lists:
+      network:
+        - 'lan'
+
+  # --- wireless (hardware-specific radio path) -------------------------------
+  - path: 'wireless.radio0'
+    type: wifi-device
+    options:
+      type: 'mac80211'
+      path: 'platform/soc/3f300000.mmcnr/mmc_host/mmc1/mmc1:0001/mmc1:0001:1'
+      band: '2g'
+      channel: '1'
+      htmode: 'HT20'
+
+  - path: 'wireless.default_radio0'
+    type: wifi-iface
+    options:
+      device: 'radio0'
+      network: 'lan'
+      mode: 'ap'
+      ssid: 'OpenWrt'
+      encryption: 'none'
+      disabled: '1'
+
+  # --- nlbwmon (traffic statistics for the local networks) ------------------
+  - path: 'nlbwmon.nlbwmon'
+    legacy_path: 'nlbwmon.@nlbwmon[0]'
+    type: nlbwmon
+    options:
+      netlink_buffer_size: '524288'
+      commit_interval: '24h'
+      refresh_interval: '30s'
+      database_directory: '/var/lib/nlbwmon'
+      database_generations: '10'
+      database_interval: '1'
+      database_limit: '10000'
+      protocol_database: '/usr/share/nlbwmon/protocols'
+    lists:
+      local_network:
+        - '192.168.0.0/16'
+        - '172.16.0.0/12'
+        - '10.0.0.0/8'
+        - 'lan'
+
+  # --- vnstat (interfaces: the trunk and each VLAN device) -------------------
+  - path: 'vnstat.vnstat'
+    legacy_path: 'vnstat.@vnstat[0]'
+    type: vnstat
+    lists:
+      interface: "{{ [openwrt_trunk] + (openwrt_vlans | map(attribute='id') | map('string') | map('regex_replace', '^', openwrt_trunk ~ '.') | list) }}"
