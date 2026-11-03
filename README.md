@@ -72,8 +72,9 @@ A run goes through these phases (details are commented in `roles/openwrt/tasks/m
 
 1. **Backup (before).** `sysupgrade -b` archives the config, and the uncommitted
    UCI edits are saved too. Files go to `backups/router/`.
-2. **Reachability and Python.** SSH is checked, and the Python runtime is
-   installed if missing.
+2. **Reachability, SSH key and Python.** SSH is checked. The public key in
+   `openwrt_ssh_key_file` is added to the router's `/etc/dropbear/authorized_keys`
+   if it is missing. The Python runtime is installed if missing.
 3. **Validate and build.** The variables become the list of desired UCI sections.
 4. **Plan.** The manifest of the last successful run shows what this role owns.
    Config that is no longer desired is pruned, but only if the manifest lists it.
@@ -120,6 +121,23 @@ Key settings (all in `roles/openwrt/defaults/main.yml` unless noted):
 | `openwrt_reload_services` | `true` | reload services after commits |
 | `openwrt_backup_enabled` | `true` | take the before and after backups |
 | `openwrt_backup_dir` | `<repo>/backups` | where backups are stored on the controller |
+| `openwrt_ssh_key_file` (in `inventory/group_vars/openwrt/main.yml`) | `~/.ssh/openwrt_ed25519.pub` | public key installed for root on the router; `''` skips it |
+
+## SSH access
+
+Ansible connects to the router with the private key only: its SSH options set
+`PasswordAuthentication=no`. So the key must be on the router before password
+login is turned off. `site.yml` makes sure of that. It adds the public key from
+`openwrt_ssh_key_file` to `/etc/dropbear/authorized_keys` when it is missing, and
+does nothing when it is present. Every run therefore also proves that key login works.
+
+The backup set `dropbear.main.RootPasswordAuth` to `on`, so root can still log in
+with a password. To turn password login off, set it to `'off'` in
+`inventory/group_vars/openwrt/network.yml`, then run the playbook. Dropbear
+applies it through the approval prompt, like any other change. Before you do,
+check that key login works (the playbook's own connection already does this).
+After it's off, password logins to root fail. If the key is ever lost, the
+router is reachable only through the console or a reflash.
 
 A VLAN entry in `network.yml` generates a device and interface, a DHCP pool (if
 `dhcp` is set), a firewall zone, a forwarding to the uplink zone, and block rules.
@@ -185,7 +203,7 @@ CI never contacts a router, and it has no secrets.
   Removing one from the variables prunes it from the router on the next run, so
   removal needs a deliberate migration.
 - `dropbear` allows root password login (`RootPasswordAuth`) because the backup
-  had it. Turn it off in `network.yml` once key-based login works.
+  had it. See "SSH access" above for turning it off.
 - Rollback recovery is only tested in theory on the router. It is not yet
   exercised end to end, because the test container has no procd/ubus.
 - Molecule cannot exercise the approval prompt or the rollback timer. The router

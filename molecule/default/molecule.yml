@@ -36,6 +36,8 @@ provisioner:
         openwrt_rollback_enabled: false
         # No router to back up in the test container.
         openwrt_backup_enabled: false
+        # No SSH in the test container, so no key to install.
+        openwrt_ssh_key_file: ''
         # The Molecule container has python3-light after prepare.yml.
         ansible_python_interpreter: /usr/bin/python3
 

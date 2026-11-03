@@ -10,7 +10,7 @@
 #   1. Back up the router to backups/ on the controller, before anything changes.
 #      This captures uncommitted UCI edits too.
 #   2. Check that SSH reaches the router. This uses raw, so it works before
-#      Python is installed.
+#      Python is installed. Then install the SSH public key for root (openwrt_ssh_key_file).
 #   3. Install the Python runtime on the router. The role's template and file
 #      tasks need it. The step does nothing when it is present.
 #   4. Run the openwrt role (see roles/openwrt/tasks/main.yml for its phases).
@@ -33,6 +33,21 @@
       ansible.builtin.raw: uname -a
       register: uname_result
       changed_when: false
+
+    # Ansible connects with this key only (PasswordAuthentication=no), so the key
+    # has to be on the router before password login is turned off. The task adds
+    # the key when it is missing and does nothing when it is already there.
+    - name: Install the SSH public key for root on the router
+      ansible.builtin.raw: >-
+        mkdir -p /etc/dropbear && touch /etc/dropbear/authorized_keys &&
+        chmod 600 /etc/dropbear/authorized_keys &&
+        {
+          grep -qxF {{ (lookup('file', openwrt_ssh_key_file) | trim) | quote }} /etc/dropbear/authorized_keys ||
+          { printf '%s\n' {{ (lookup('file', openwrt_ssh_key_file) | trim) | quote }} >> /etc/dropbear/authorized_keys && echo KEY_ADDED; };
+        }
+      register: openwrt_ssh_key_install
+      changed_when: "'KEY_ADDED' in openwrt_ssh_key_install.stdout"
+      when: openwrt_ssh_key_file | default('') | length > 0
 
     # python3-light is minimal. The other packages supply the modules that
     # Ansible's module runtime imports (idna codec, decimal, uuid, ctypes,

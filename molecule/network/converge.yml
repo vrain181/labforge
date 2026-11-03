@@ -17,6 +17,7 @@
         openwrt_reload_services: false
         openwrt_rollback_enabled: false
         openwrt_backup_enabled: false
+        openwrt_ssh_key_file: ''
 
 # Runs the same playbook as the router, so the test covers the real entry point.
 - name: Converge

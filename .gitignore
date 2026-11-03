@@ -221,3 +221,5 @@ __marimo__/
 
 # Router backups: contain password hashes and SSH host keys. Never commit.
 backups/
+
+.idea/

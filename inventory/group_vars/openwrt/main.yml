@@ -4,3 +4,9 @@
 # Python is installed on the router by site.yml (pre_tasks), and by the Molecule
 # prepare playbook in the test container. Raw tasks do not need Python.
 ansible_python_interpreter: /usr/bin/python3
+
+# Public key that the playbook installs for root on the router, in
+# /etc/dropbear/authorized_keys (see site.yml pre_tasks). Ansible connects with
+# this key only, so the key must be on the router before password login is turned
+# off. Set to '' to skip. Molecule sets '' because the test container has no SSH.
+openwrt_ssh_key_file: "{{ lookup('env', 'HOME') }}/.ssh/openwrt_ed25519.pub"
