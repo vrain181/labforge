@@ -15,6 +15,10 @@
         - { path: 'network.vlan30.ipaddr', expected: '192.168.30.1' }
         - { path: 'dhcp.vlan10.dhcp_option', expected: '6,192.168.10.1' }
         - { path: 'dhcp.vlan30.limit', expected: '150' }
+        - { path: 'dhcp.lan.ignore', expected: '1' }
+        - { path: 'dhcp.lan.dhcpv4', expected: 'disabled' }
+        - { path: 'dhcp.lan.dhcpv6', expected: 'disabled' }
+        - { path: 'dhcp.lan.ra', expected: 'disabled' }
         - { path: 'firewall.wan.masq', expected: '1' }
         - { path: 'firewall.vlan20_zone.forward', expected: 'REJECT' }
         - { path: 'firewall.block_vlan10_router.dest_ip', expected: '192.168.178.3' }

@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" width="1200" height="720" font-family="-apple-system, Helvetica, Arial, sans-serif">
+  <!-- Background -->
+  <rect x="0" y="0" width="1200" height="720" fill="#ffffff"/>
+
+  <!-- Title -->
+  <text x="30" y="40" font-size="24" font-weight="bold" fill="#0f172a">Logical architecture</text>
+  <text x="30" y="64" font-size="14" fill="#64748b">Logical view: routing, DHCP, and firewall zones</text>
+
+  <!-- Internet and upstream gateway -->
+  <rect x="30" y="120" width="200" height="60" rx="8" fill="#eef2f7" stroke="#64748b" stroke-width="1.5"/>
+  <text x="130" y="156" font-size="15" text-anchor="middle" fill="#0f172a">Internet</text>
+  <line x1="230" y1="150" x2="300" y2="150" stroke="#64748b" stroke-width="1.5"/>
+
+  <rect x="300" y="120" width="300" height="60" rx="8" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
+  <text x="450" y="146" font-size="14" font-weight="bold" text-anchor="middle" fill="#0f172a">Upstream router (FritzBox)</text>
+  <text x="450" y="166" font-size="12" text-anchor="middle" fill="#475569">192.168.178.1 · home or ISP network</text>
+
+  <!-- Gateway link to the router -->
+  <line x1="450" y1="180" x2="450" y2="225" stroke="#64748b" stroke-width="1.5"/>
+  <text x="462" y="206" font-size="11" fill="#475569">untagged on eth0</text>
+
+  <!-- OpenWrt router -->
+  <rect x="270" y="225" width="580" height="245" rx="12" fill="#f8fafc" stroke="#0f172a" stroke-width="2"/>
+  <text x="290" y="250" font-size="16" font-weight="bold" fill="#0f172a">OpenWrt router</text>
+  <text x="290" y="268" font-size="12" fill="#475569">management address 192.168.10.1 (VLAN 10) · SSH :22 · LuCI :80, :443</text>
+
+  <!-- Upstream network (br-lan) -->
+  <rect x="278" y="285" width="135" height="95" rx="6" fill="#e2e8f0" stroke="#64748b"/>
+  <text x="290" y="305" font-size="13" font-weight="bold" fill="#0f172a">upstream</text>
+  <text x="290" y="321" font-size="11" fill="#334155">br-lan (eth0)</text>
+  <text x="290" y="337" font-size="11" fill="#334155">192.168.178.3/24</text>
+  <text x="290" y="353" font-size="11" fill="#334155">DHCP off · RA off</text>
+  <text x="290" y="369" font-size="11" fill="#334155">zone: upstream, masq</text>
+
+  <!-- VLAN 10 -->
+  <rect x="421" y="285" width="135" height="95" rx="6" fill="#dbeafe" stroke="#2563eb"/>
+  <text x="433" y="305" font-size="13" font-weight="bold" fill="#1e3a8a">VLAN 10</text>
+  <text x="433" y="321" font-size="11" fill="#334155">eth0.10</text>
+  <text x="433" y="337" font-size="11" fill="#334155">192.168.10.1/24</text>
+  <text x="433" y="353" font-size="11" fill="#334155">DHCP .100–.249</text>
+  <text x="433" y="369" font-size="11" fill="#334155">zone: vlan10, ACCEPT</text>
+
+  <!-- VLAN 20 -->
+  <rect x="564" y="285" width="135" height="95" rx="6" fill="#dcfce7" stroke="#16a34a"/>
+  <text x="576" y="305" font-size="13" font-weight="bold" fill="#14532d">VLAN 20</text>
+  <text x="576" y="321" font-size="11" fill="#334155">eth0.20</text>
+  <text x="576" y="337" font-size="11" fill="#334155">192.168.20.1/24</text>
+  <text x="576" y="353" font-size="11" fill="#334155">DHCP .100–.249</text>
+  <text x="576" y="369" font-size="11" fill="#334155">zone: vlan20, REJECT</text>
+
+  <!-- VLAN 30 -->
+  <rect x="707" y="285" width="135" height="95" rx="6" fill="#ffedd5" stroke="#ea580c"/>
+  <text x="719" y="305" font-size="13" font-weight="bold" fill="#7c2d12">VLAN 30</text>
+  <text x="719" y="321" font-size="11" fill="#334155">eth0.30</text>
+  <text x="719" y="337" font-size="11" fill="#334155">192.168.30.1/24</text>
+  <text x="719" y="353" font-size="11" fill="#334155">DHCP .100–.249</text>
+  <text x="719" y="369" font-size="11" fill="#334155">zone: vlan30, REJECT</text>
+
+  <!-- Connectors from each network to the trunk -->
+  <line x1="345" y1="380" x2="345" y2="400" stroke="#334155" stroke-width="1.5"/>
+  <line x1="488" y1="380" x2="488" y2="400" stroke="#2563eb" stroke-width="1.5"/>
+  <line x1="631" y1="380" x2="631" y2="400" stroke="#16a34a" stroke-width="1.5"/>
+  <line x1="774" y1="380" x2="774" y2="400" stroke="#ea580c" stroke-width="1.5"/>
+
+  <!-- Trunk -->
+  <rect x="278" y="400" width="564" height="26" rx="4" fill="#334155"/>
+  <text x="560" y="417" font-size="12" text-anchor="middle" fill="#ffffff">eth0 trunk · untagged upstream + 802.1Q tags 10, 20, 30</text>
+
+  <text x="290" y="452" font-size="12" fill="#475569">vnstat and nlbwmon watch eth0 and the VLAN devices</text>
+
+  <!-- Clients, reached through the switch on the trunk -->
+  <line x1="345" y1="426" x2="345" y2="520" stroke="#334155" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <line x1="488" y1="426" x2="488" y2="520" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <line x1="631" y1="426" x2="631" y2="520" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <line x1="774" y1="426" x2="774" y2="520" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <text x="278" y="505" font-size="11" fill="#64748b">clients reach the router through the switch on the trunk</text>
+
+  <rect x="278" y="520" width="135" height="90" rx="6" fill="#f1f5f9" stroke="#64748b"/>
+  <text x="290" y="540" font-size="12" font-weight="bold" fill="#0f172a">Home LAN clients</text>
+  <text x="290" y="558" font-size="11" fill="#334155">192.168.178.0/24</text>
+  <text x="290" y="574" font-size="11" fill="#334155">DHCP: FritzBox</text>
+
+  <rect x="421" y="520" width="135" height="90" rx="6" fill="#eff6ff" stroke="#2563eb"/>
+  <text x="433" y="540" font-size="12" font-weight="bold" fill="#1e3a8a">VLAN 10 clients</text>
+  <text x="433" y="558" font-size="11" fill="#334155">192.168.10.100–.249</text>
+  <text x="433" y="574" font-size="11" fill="#334155">Workstation host .200</text>
+
+  <rect x="564" y="520" width="135" height="90" rx="6" fill="#f0fdf4" stroke="#16a34a"/>
+  <text x="576" y="540" font-size="12" font-weight="bold" fill="#14532d">VLAN 20 clients</text>
+  <text x="576" y="558" font-size="11" fill="#334155">192.168.20.100–.249</text>
+
+  <rect x="707" y="520" width="135" height="90" rx="6" fill="#fff7ed" stroke="#ea580c"/>
+  <text x="719" y="540" font-size="12" font-weight="bold" fill="#7c2d12">VLAN 30 clients</text>
+  <text x="719" y="558" font-size="11" fill="#334155">192.168.30.100–.249</text>
+
+  <!-- Firewall policy panel -->
+  <rect x="900" y="120" width="270" height="490" rx="10" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text x="915" y="146" font-size="15" font-weight="bold" fill="#0f172a">Firewall policy</text>
+
+  <text x="915" y="172" font-size="12" font-weight="bold" fill="#0f172a">Internet → router (WAN in)</text>
+  <text x="915" y="188" font-size="11" fill="#334155">allowed: DHCP renew, ping, IGMP,</text>
+  <text x="915" y="202" font-size="11" fill="#334155">DHCPv6, MLD, ICMPv6</text>
+
+  <text x="915" y="230" font-size="12" font-weight="bold" fill="#0f172a">VLAN 10 → upstream</text>
+  <text x="915" y="246" font-size="11" fill="#334155">zone forward ACCEPT, uplink allowed</text>
+
+  <text x="915" y="272" font-size="12" font-weight="bold" fill="#0f172a">VLAN 20 / 30 → upstream</text>
+  <text x="915" y="288" font-size="11" fill="#334155">zone forward REJECT, uplink allowed</text>
+
+  <text x="915" y="314" font-size="12" font-weight="bold" fill="#0f172a">All VLANs → 192.168.178.0/24</text>
+  <text x="915" y="330" font-size="11" fill="#b91c1c">blocked (home LAN)</text>
+
+  <text x="915" y="356" font-size="12" font-weight="bold" fill="#0f172a">All VLANs → 192.168.178.3</text>
+  <text x="915" y="372" font-size="11" fill="#b91c1c">blocked (router address)</text>
+
+  <text x="915" y="398" font-size="12" font-weight="bold" fill="#0f172a">VLAN → VLAN</text>
+  <text x="915" y="414" font-size="11" fill="#334155">default REJECT, except VLAN 10 </text>
+
+  <text x="915" y="440" font-size="12" font-weight="bold" fill="#0f172a">Wireless</text>
+  <text x="915" y="456" font-size="11" fill="#334155">radio0 2.4 GHz, SSID 'OpenWrt', disabled</text>
+
+</svg>

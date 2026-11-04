@@ -13,6 +13,14 @@ Every run is safe by design:
   config unless you confirm reachability,
 - a second backup is taken after a successful run.
 
+## Network at a glance
+
+![Network architecture](docs/network-architecture.svg)
+
+The router sits between the upstream network (`192.168.178.0/24`, untagged on
+`eth0`) and three VLANs (10, 20, 30) that use tagged sub-interfaces of the same
+trunk. The diagram is drawn from `inventory/group_vars/openwrt/network.yml`.
+
 ## Layout
 
 ```

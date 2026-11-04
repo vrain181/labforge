@@ -240,16 +240,19 @@ openwrt_site_sections:
         - '1.1.1.1'
         - '8.8.8.8'
 
+  # The uplink network is served by the upstream router. ignore=1 keeps this
+  # router out of it, so clients never see two DHCP servers.
   - path: 'dhcp.lan'
     type: dhcp
     options:
       interface: 'lan'
+      ignore: '1'
       start: '100'
       limit: '100'
       leasetime: '12h'
-      dhcpv4: 'server'
-      dhcpv6: 'server'
-      ra: 'server'
+      dhcpv4: 'disabled'
+      dhcpv6: 'disabled'
+      ra: 'disabled'
       ra_preference: 'medium'
     lists:
       ra_flags:
@@ -340,6 +343,22 @@ openwrt_site_sections:
       ssid: 'OpenWrt'
       encryption: 'none'
       disabled: '1'
+
+  # --- forwardings between VLANs ---------------------------------------------
+  # VLAN 10 may reach VLAN 20 and VLAN 30. Both zones keep the default REJECT
+  # for everything else. These sections were on the router before this file
+  # managed them, so the dry run should show them as unchanged.
+  - path: 'firewall.vlan10_to_vlan20'
+    type: forwarding
+    options:
+      src: 'vlan10'
+      dest: 'vlan20'
+
+  - path: 'firewall.vlan10_to_vlan30'
+    type: forwarding
+    options:
+      src: 'vlan10'
+      dest: 'vlan30'
 
   # --- nlbwmon (traffic statistics for the local networks) ------------------
   - path: 'nlbwmon.nlbwmon'
