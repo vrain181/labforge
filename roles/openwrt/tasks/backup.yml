@@ -10,6 +10,7 @@
 #   <label>-<time>.tar.gz            sysupgrade -b archive of /etc/config and more
 #   <label>-<time>-uncommitted.txt   output of `uci changes` (uncommitted edits)
 #   <label>-<time>-delta.tar.gz      the uncommitted delta store in /tmp/.uci
+#   <label>-<time>-cron.txt          /etc/crontabs/root (the nightly-upgrade entry)
 #
 # The archives contain secrets: the root password hash, dropbear host keys and
 # authorized_keys. backups/ is git-ignored and the files are owner-only.
@@ -30,6 +31,8 @@
     # The uncommitted delta lives in /tmp/.uci. Archive it even when empty.
     [ -d /tmp/.uci ] || mkdir -p /tmp/.uci
     tar -czf {{ (openwrt_work_dir ~ '/backup/' ~ openwrt_backup_name ~ '-delta.tar.gz') | quote }} -C /tmp .uci
+    # The nightly-upgrade cron entry. The change report compares it between runs.
+    { cat /etc/crontabs/root 2>/dev/null || true; } > {{ (openwrt_work_dir ~ '/backup/' ~ openwrt_backup_name ~ '-cron.txt') | quote }}
     echo BACKUP_OK
   register: openwrt_backup_remote
   changed_when: false
@@ -52,6 +55,7 @@
     - '.tar.gz'
     - '-uncommitted.txt'
     - '-delta.tar.gz'
+    - '-cron.txt'
   loop_control:
     label: "{{ openwrt_backup_name }}{{ item }}"
 
@@ -65,6 +69,7 @@
     - '.tar.gz'
     - '-uncommitted.txt'
     - '-delta.tar.gz'
+    - '-cron.txt'
   loop_control:
     label: "{{ openwrt_backup_name }}{{ item }}"
 

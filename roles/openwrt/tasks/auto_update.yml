@@ -1,0 +1,30 @@
+---
+# Included from main.yml when openwrt_auto_update_enabled is true. It installs
+# the nightly script and adds the cron entry. The mail setup it relies on is in
+# mail.yml. None of this is UCI, so the role's approval and rollback steps do not
+# cover it.
+
+- name: Install the nightly upgrade script
+  ansible.builtin.template:
+    src: safe_upgrade.sh.j2
+    dest: /usr/bin/openwrt-safe-upgrade
+    mode: '0755'
+
+# The cron line carries a marker comment. A run replaces the line that has the
+# marker, so a changed schedule does not leave a second entry behind. Other cron
+# entries in /etc/crontabs/root are kept as they are.
+- name: Add the nightly upgrade to cron
+  ansible.builtin.raw: |
+    f=/etc/crontabs/root
+    line={{ (openwrt_auto_update_schedule ~ ' /usr/bin/openwrt-safe-upgrade # openwrt-ansible: safe-upgrade') | quote }}
+    touch "$f"
+    if grep -qxF "$line" "$f"; then
+      exit 0
+    fi
+    grep -v 'openwrt-ansible: safe-upgrade' "$f" > "$f.tmp"
+    printf '%s\n' "$line" >> "$f.tmp"
+    mv -f "$f.tmp" "$f"
+    /etc/init.d/cron restart
+    echo CRON_UPDATED
+  register: openwrt_cron_install
+  changed_when: "'CRON_UPDATED' in openwrt_cron_install.stdout"

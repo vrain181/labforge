@@ -15,6 +15,8 @@
 #      tasks need it. The step does nothing when it is present.
 #   4. Run the openwrt role (see roles/openwrt/tasks/main.yml for its phases).
 #   5. If everything succeeded, check the router is reachable and back it up again.
+#   6. If the run changed the configuration, email the diff against the "before"
+#      backup. If the email cannot be sent, print msmtp's error (roles/openwrt/tasks/report.yml).
 - name: Provision OpenWrt router
   hosts: openwrt
   gather_facts: false
@@ -27,6 +29,12 @@
         tasks_from: backup.yml
       vars:
         openwrt_backup_label: before
+      when: openwrt_backup_enabled
+
+    # The change report compares this backup with the one taken after the run.
+    - name: Remember the before-backup name for the change report
+      ansible.builtin.set_fact:
+        openwrt_report_before: "{{ openwrt_backup_name }}"
       when: openwrt_backup_enabled
 
     - name: Check that the host is reachable and runs a shell
@@ -82,3 +90,14 @@
       vars:
         openwrt_backup_label: after
       when: openwrt_backup_enabled
+
+    # Last task. Emails the diff when the run changed something. Skipped otherwise.
+    - name: Email the change report
+      ansible.builtin.include_role:
+        name: openwrt
+        tasks_from: report.yml
+      vars:
+        openwrt_report_after: "{{ openwrt_backup_name }}"
+      when:
+        - openwrt_backup_enabled
+        - openwrt_report_enabled

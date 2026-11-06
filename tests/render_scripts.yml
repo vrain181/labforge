@@ -52,3 +52,4 @@
         - rollback_timer
         - rollback_prepare
         - rollback_confirm
+        - safe_upgrade

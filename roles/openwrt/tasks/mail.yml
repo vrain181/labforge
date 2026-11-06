@@ -1,0 +1,27 @@
+---
+# Included from main.yml when the nightly upgrade or the change report is on. It
+# installs msmtp on the router and writes its config. The nightly job and the
+# change report both send mail through this setup. None of it is UCI.
+
+- name: Check the mail settings
+  ansible.builtin.assert:
+    that:
+      - openwrt_auto_update_notify_to | length > 0
+      - openwrt_auto_update_smtp_user | length > 0
+      - openwrt_auto_update_smtp_password | length > 0
+    fail_msg: "Set openwrt_auto_update_notify_to, openwrt_auto_update_smtp_user and openwrt_auto_update_smtp_password."
+    quiet: true
+
+- name: Install msmtp to send mail
+  ansible.builtin.raw: >-
+    apk info -e msmtp >/dev/null 2>&1 || { apk update && apk add msmtp && echo INSTALLED; }
+  register: openwrt_msmtp_install
+  changed_when: "'INSTALLED' in openwrt_msmtp_install.stdout"
+
+# no_log keeps the SMTP password out of the task output and the diff.
+- name: Write the msmtp config with the mail settings
+  ansible.builtin.template:
+    src: msmtprc.j2
+    dest: /etc/msmtprc
+    mode: '0600'
+  no_log: true

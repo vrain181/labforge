@@ -252,3 +252,15 @@
 - name: Remove the changed-package marker
   ansible.builtin.raw: "rm -f {{ openwrt_uci_change_marker | quote }}"
   changed_when: false
+
+# ---- 12. Mail and nightly safe upgrades (optional, outside UCI) --------------
+# Mail is set up when the nightly job or the change report is on. The nightly
+# job's script and cron entry come after it. See mail.yml and auto_update.yml.
+
+- name: Configure mail on the router
+  ansible.builtin.include_tasks: mail.yml
+  when: openwrt_auto_update_enabled or openwrt_report_enabled
+
+- name: Configure the nightly safe package upgrades
+  ansible.builtin.include_tasks: auto_update.yml
+  when: openwrt_auto_update_enabled

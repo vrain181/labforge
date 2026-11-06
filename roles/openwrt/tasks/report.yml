@@ -1,0 +1,145 @@
+---
+# Included from site.yml after the final backup. It compares the router's state
+# before and after this run, and emails the differences. Nothing is sent when
+# nothing changed.
+#
+# The diff covers the backup archives (UCI config and more) and the cron file.
+# Secrets stay out: shadow and passwd files, dropbear keys and TLS keys are
+# excluded, and any line that holds a key or password option is masked.
+#
+# The mail is sent from the router with msmtp, the same setup the nightly job
+# uses. If sending fails, msmtp's error is printed. The run is not failed,
+# because the configuration has already been applied.
+
+- name: Set the report directory
+  ansible.builtin.set_fact:
+    openwrt_report_dir: "{{ openwrt_backup_dir }}/{{ inventory_hostname }}/report-{{ openwrt_report_after }}"
+    openwrt_report_sides:
+      - { label: before, name: "{{ openwrt_report_before }}" }
+      - { label: after, name: "{{ openwrt_report_after }}" }
+
+- name: Create the report directories on the controller
+  ansible.builtin.file:
+    path: "{{ openwrt_report_dir }}/{{ item.label }}"
+    state: directory
+    mode: '0700'
+  delegate_to: localhost
+  become: false
+  loop: "{{ openwrt_report_sides }}"
+  loop_control:
+    label: "{{ item.label }}"
+
+- name: Unpack the before and after backups on the controller
+  ansible.builtin.command:
+    argv:
+      - tar
+      - -xzf
+      - "{{ openwrt_backup_dir }}/{{ inventory_hostname }}/{{ item.name }}.tar.gz"
+      - -C
+      - "{{ openwrt_report_dir }}/{{ item.label }}"
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  loop: "{{ openwrt_report_sides }}"
+  loop_control:
+    label: "{{ item.label }}"
+
+- name: Copy the cron files into the unpacked trees
+  ansible.builtin.copy:
+    src: "{{ openwrt_backup_dir }}/{{ inventory_hostname }}/{{ item.name }}-cron.txt"
+    dest: "{{ openwrt_report_dir }}/{{ item.label }}/crontab.root"
+    remote_src: true
+    mode: '0600'
+  delegate_to: localhost
+  become: false
+  loop: "{{ openwrt_report_sides }}"
+  loop_control:
+    label: "{{ item.label }}"
+
+# -U0 leaves out context lines, so an unchanged key line cannot leak into the
+# mail. Each line that holds a key or password option is masked below.
+- name: Compare the two states
+  ansible.builtin.command:
+    argv:
+      - diff
+      - -ruN
+      - -U0
+      - -x
+      - shadow
+      - -x
+      - passwd
+      - -x
+      - dropbear
+      - -x
+      - '*.key'
+      - -x
+      - '*.pem'
+      - before
+      - after
+    chdir: "{{ openwrt_report_dir }}"
+  delegate_to: localhost
+  become: false
+  register: openwrt_report_raw
+  failed_when: openwrt_report_raw.rc > 1
+  changed_when: false
+
+- name: Set the pattern that marks key and password lines
+  ansible.builtin.set_fact:
+    openwrt_report_mask_pattern: "(?m)^[-+].*\\b(?:key|password|psk|secret)\\b.*$"
+
+- name: Drop the diff command lines that diff prints before each file
+  ansible.builtin.set_fact:
+    openwrt_report_without_commands: "{{ openwrt_report_raw.stdout | regex_replace('(?m)^diff .*\n', '') }}"
+
+- name: Mask lines that hold a key or password
+  ansible.builtin.set_fact:
+    openwrt_report_diff_text: "{{ openwrt_report_without_commands | regex_replace(openwrt_report_mask_pattern, '[line masked: key or password option]') }}"
+
+- name: Note whether this run changed anything
+  ansible.builtin.set_fact:
+    openwrt_report_changed: "{{ openwrt_report_diff_text | trim | length > 0 }}"
+
+- name: Report that nothing changed
+  ansible.builtin.debug:
+    msg: "No configuration change in this run; no report email."
+  when: not openwrt_report_changed
+
+- name: Write the report email on the controller
+  ansible.builtin.template:
+    src: report_mail.j2
+    dest: "{{ openwrt_report_dir }}/report.eml"
+    mode: '0600'
+  delegate_to: localhost
+  become: false
+  when: openwrt_report_changed
+
+- name: Copy the report email to the router
+  ansible.builtin.copy:
+    src: "{{ openwrt_report_dir }}/report.eml"
+    dest: "{{ openwrt_work_dir }}/report.eml"
+    mode: '0600'
+  when:
+    - openwrt_report_changed
+    - openwrt_report_send
+
+# msmtp's own error text comes back in the output. The file is removed either way.
+- name: Send the report email from the router
+  ansible.builtin.raw: >-
+    msmtp -C /etc/msmtprc -t < {{ (openwrt_work_dir ~ '/report.eml') | quote }} 2>&1;
+    rc=$?; rm -f {{ (openwrt_work_dir ~ '/report.eml') | quote }}; exit $rc
+  register: openwrt_report_sent
+  failed_when: false
+  changed_when: openwrt_report_sent.rc == 0
+  when:
+    - openwrt_report_changed
+    - openwrt_report_send
+
+- name: Show whether the report email was sent
+  ansible.builtin.debug:
+    msg: >-
+      {{ ('Change report emailed to ' ~ openwrt_auto_update_notify_to)
+         if openwrt_report_sent.rc == 0
+         else ('The change report was NOT sent. msmtp said: ' ~ (openwrt_report_sent.stdout | default('') | trim)) }}
+  when:
+    - openwrt_report_changed
+    - openwrt_report_send

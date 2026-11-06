@@ -40,6 +40,10 @@ provisioner:
         openwrt_ssh_key_file: ''
         # The Molecule container has python3-light after prepare.yml.
         ansible_python_interpreter: /usr/bin/python3
+        openwrt_auto_update_notify_to: 'test@example.invalid'
+        openwrt_auto_update_smtp_user: 'test@example.invalid'
+        openwrt_auto_update_smtp_password: 'placeholder'
+        openwrt_report_send: false
 
 verifier:
   name: ansible

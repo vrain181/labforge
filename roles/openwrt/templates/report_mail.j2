@@ -1,0 +1,11 @@
+From: {{ openwrt_auto_update_from }}
+To: {{ openwrt_auto_update_notify_to }}
+Subject: [{{ inventory_hostname }}] OpenWrt configuration changed
+
+The playbook run changed the router. The diff compares it with the backup taken
+just before the run ({{ openwrt_report_before }}).
+
+Lines that hold a key or password option are masked. Package upgrades from the
+nightly job are reported in that job's own mail.
+
+{{ openwrt_report_diff_text }}

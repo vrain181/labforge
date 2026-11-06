@@ -91,6 +91,47 @@ openwrt_work_dir: /tmp/openwrt-ansible
 openwrt_backup_enabled: true
 openwrt_backup_dir: "{{ playbook_dir }}/backups"
 
+# ---- Nightly safe upgrades (outside UCI) -------------------------------------
+
+# Installs a cron job that upgrades packages every night, skipping the packages
+# below. It mails openwrt_auto_update_notify_to only when something happened.
+# See tasks/auto_update.yml and templates/safe_upgrade.sh.j2.
+openwrt_auto_update_enabled: false
+# Cron schedule: minute hour day-of-month month day-of-week.
+openwrt_auto_update_schedule: '0 3 * * *'
+# Package-name globs that the nightly job never upgrades. A held-back package
+# with an update is listed in the email for a manual upgrade.
+openwrt_auto_update_held_packages:
+  - 'kernel'
+  - 'kmod-*'
+  - 'base-files'
+  - 'procd*'
+  - 'netifd'
+  - 'firewall4'
+  - 'nftables*'
+  - 'odhcpd*'
+  - 'dnsmasq*'
+  - 'hostapd*'
+  - 'wpad*'
+  - 'dropbear'
+
+# Report mail. Set the recipient and SMTP account in inventory/group_vars, and
+# keep the password in ansible-vault. For Gmail, use an app password (2-step
+# verification must be on) and the default host and port.
+openwrt_auto_update_notify_to: ''
+openwrt_auto_update_smtp_host: smtp.gmail.com
+openwrt_auto_update_smtp_port: 587
+openwrt_auto_update_smtp_user: ''
+openwrt_auto_update_smtp_password: ''
+openwrt_auto_update_from: "{{ openwrt_auto_update_smtp_user }}"
+
+# Change report: after each playbook run, email the configuration diff when the
+# run changed something. It is sent from the router with msmtp, so it uses the
+# mail settings above. Set openwrt_report_send to false to build the report
+# without sending it.
+openwrt_report_enabled: true
+openwrt_report_send: true
+
 # ============================================================================
 # Stock OpenWrt sections. Each entry is one UCI section:
 #   path         uci address (package.section, or package.@type[index])
