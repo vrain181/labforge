@@ -18,6 +18,8 @@
         openwrt_rollback_enabled: false
         openwrt_backup_enabled: false
         openwrt_ssh_key_file: ''
+        openwrt_auto_update_enabled: false
+        openwrt_report_enabled: false
 
 # Runs the same playbook as the router, so the test covers the real entry point.
 - name: Converge
