@@ -3,47 +3,83 @@
 #
 # Started detached by rollback_prepare.sh. It waits, then restores the
 # protected config files unless rollback_confirm.sh has confirmed first.
+# Each step is logged to syslog with tag owrt.rollback[.<package>].
 #
 # Argument: $1 = snapshot directory created by rollback_prepare.sh.
 state="$1"
 
+# Writes one syslog line. The Loki push forwards it with labels from the tag.
+note() {
+  logger -t "owrt.$1" -- "$2"
+}
+
 # 1. Wait for the operator to confirm reachability.
+note rollback {{ ('timer started; waiting ' ~ (openwrt_rollback_timeout | int) ~ 's for confirmation') | quote }}
 sleep {{ openwrt_rollback_timeout | int }}
 
 # 2. Take the lock. If confirm holds it, confirm wins and this timer exits.
-mkdir "$state/lock" 2>/dev/null || exit 0
+mkdir "$state/lock" 2>/dev/null || {
+  note rollback "confirmation holds the lock; timer exits"
+  exit 0
+}
 
 # 3. Confirmed in time: nothing to restore.
 if [ -e "$state/confirmed" ]; then
   rmdir "$state/lock" 2>/dev/null || true
+  note rollback "confirmed in time; nothing restored"
   exit 0
 fi
 
 # 4. Not confirmed: restore each protected package from the snapshot.
 #    Stop handling a signal from a superseded run.
-trap 'exit 1' HUP INT TERM
+note rollback "not confirmed in time; restoring the saved configuration"
+trap 'note rollback "timer stopped by a signal; restore incomplete"; exit 1' HUP INT TERM
 {% for package in openwrt_rollback_packages %}
 # {{ package }}: drop uncommitted edits, then put back the saved file.
 uci revert {{ package | quote }} >/dev/null 2>&1 || true
 destination={{ ('/etc/config/' ~ package) | quote }}
 if [ -f "$state/{{ package }}.absent" ]; then
-  rm -f "$destination" || exit 1
+  rm -f "$destination" || {
+    note rollback.{{ package }} {{ ('could not delete ' ~ '/etc/config/' ~ package ~ '; restore stopped') | quote }}
+    exit 1
+  }
+  note rollback.{{ package }} {{ ('deleted /etc/config/' ~ package ~ ' (it did not exist before the change)') | quote }}
 else
   temporary="${destination}.rollback.$$"
-  cp -p "$state/{{ package }}" "$temporary" || exit 1
-  mv -f "$temporary" "$destination" || exit 1
+  cp -p "$state/{{ package }}" "$temporary" || {
+    note rollback.{{ package }} "could not copy the snapshot; restore stopped"
+    exit 1
+  }
+  mv -f "$temporary" "$destination" || {
+    note rollback.{{ package }} "could not replace /etc/config/{{ package }}; restore stopped"
+    exit 1
+  }
+  note rollback.{{ package }} {{ ('restored /etc/config/' ~ package) | quote }}
 fi
 {% endfor %}
 
 # 5. Reload the services that read the restored files.
 {% if 'network' in openwrt_rollback_packages %}
-[ ! -x /etc/init.d/network ] || /etc/init.d/network reload || exit 1
+if [ -x /etc/init.d/network ]; then
+  /etc/init.d/network reload || {
+    note rollback.network "network reload failed; restore stopped"
+    exit 1
+  }
+  note rollback.network "network reloaded after restore"
+fi
 {% endif %}
 {% if 'firewall' in openwrt_rollback_packages %}
-[ ! -x /etc/init.d/firewall ] || /etc/init.d/firewall reload || exit 1
+if [ -x /etc/init.d/firewall ]; then
+  /etc/init.d/firewall reload || {
+    note rollback.firewall "firewall reload failed; restore stopped"
+    exit 1
+  }
+  note rollback.firewall "firewall reloaded after restore"
+fi
 {% endif %}
 
 # 6. Clean up the snapshot.
 rmdir "$state/lock" 2>/dev/null || true
+note rollback "restore complete; snapshot removed"
 rm -rf "$state"
 exit 0

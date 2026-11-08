@@ -8,32 +8,47 @@
 #      unless the operator confirms reachability in time.
 #
 # Output: RUN_DIR=<snapshot directory>, then ARMED. Ansible reads both lines.
+# Each step is also logged to syslog with tag owrt.rollback[.<package>].
 set -e
+
+# Writes one syslog line. The Loki push forwards it with labels from the tag.
+note() {
+  logger -t "owrt.$1" -- "$2"
+}
 
 base={{ openwrt_rollback_state_dir | quote }}
 mkdir -p "$base"
 run=$(mktemp -d "$base/run.XXXXXX")
+note rollback "snapshot $run created"
 
 # 1. Back up each protected package. A package without a config file gets an
 #    empty .absent marker, so the timer deletes the file instead of restoring it.
 {% for package in openwrt_rollback_packages %}
 if [ -f {{ ('/etc/config/' ~ package) | quote }} ]; then
   cp -p {{ ('/etc/config/' ~ package) | quote }} "$run/{{ package }}"
+  note rollback.{{ package }} {{ ('backed up /etc/config/' ~ package) | quote }}
 else
   : > "$run/{{ package }}.absent"
+  note rollback.{{ package }} {{ ('no /etc/config/' ~ package ~ ' to back up; rollback will delete it') | quote }}
 fi
 {% endfor %}
 
 # 2. Start the timer detached from this SSH session, so it outlives the connection.
-nohup sh {{ openwrt_work_dir | quote }}/rollback_timer.sh "$run" </dev/null >/dev/null 2>&1 &
+#    setsid puts it in its own session. The SSH session end kills plain background
+#    jobs, even under nohup. nohup is only a fallback when setsid is missing.
+detach="nohup"
+command -v setsid >/dev/null 2>&1 && detach="setsid"
+$detach sh {{ openwrt_work_dir | quote }}/rollback_timer.sh "$run" </dev/null >/dev/null 2>&1 &
 pid=$!
 printf '%s\n' "$pid" > "$run/pid"
 
 # 3. If the timer did not start, remove the snapshot and fail the run.
 kill -0 "$pid" 2>/dev/null || {
+  note rollback "timer did not start; snapshot removed"
   rm -rf "$run"
   exit 1
 }
+note rollback "timer armed pid=$pid; restores in {{ openwrt_rollback_timeout | int }}s unless confirmed"
 
 echo "RUN_DIR=$run"
 echo ARMED

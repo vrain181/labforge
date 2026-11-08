@@ -1,0 +1,54 @@
+---
+# Included from site.yml after Python is installed, only when openwrt_loki_url
+# and openwrt_loki_token are both set. It clears a push left by an earlier run,
+# installs curl, writes the token to a root-only file for this run, and starts
+# loki_push.sh detached from the SSH session. loki_stop.yml stops the push and
+# removes the token. The start marker tells the push where this run's lines begin.
+
+# A run that stopped early may have left a push and a token behind.
+- name: Clear a log push left by an earlier run
+  ansible.builtin.raw: |
+    pid_file={{ (openwrt_work_dir ~ '/loki_push.pid') | quote }}
+    if [ -s "$pid_file" ]; then kill "$(cat "$pid_file")" 2>/dev/null || true; fi
+    rm -f "$pid_file" {{ openwrt_loki_token_file | quote }}
+  changed_when: false
+
+- name: Set the run ID used by the start and finish markers
+  ansible.builtin.set_fact:
+    openwrt_loki_run_id: "{{ now(utc=false).strftime('%Y%m%d%H%M%S') }}"
+
+- name: Install curl for the Loki push
+  ansible.builtin.raw: >-
+    command -v curl >/dev/null 2>&1 || { apk update && apk add curl && echo INSTALLED; }
+  register: openwrt_curl_install
+  changed_when: "'INSTALLED' in openwrt_curl_install.stdout"
+
+- name: Create the work directory with private permissions
+  ansible.builtin.raw: "umask 077; mkdir -p {{ openwrt_work_dir | quote }}"
+  changed_when: false
+
+# no_log keeps the token out of the task output and the diff.
+- name: Write the Loki token for this run
+  ansible.builtin.copy:
+    content: "{{ openwrt_loki_token }}"
+    dest: "{{ openwrt_loki_token_file }}"
+    mode: "0600"
+  no_log: true
+
+- name: Render the Loki push script
+  ansible.builtin.template:
+    src: loki_push.sh.j2
+    dest: "{{ openwrt_work_dir }}/loki_push.sh"
+    mode: "0700"
+
+# The pid file lets loki_stop.yml stop the push. setsid keeps the script alive
+# after this SSH session ends (plain background jobs die with the session).
+# The script logs its own start marker once it is listening (see loki_push.sh.j2).
+- name: Start the Loki log push
+  ansible.builtin.raw: |
+    detach=nohup; command -v setsid >/dev/null 2>&1 && detach=setsid
+    $detach sh {{ (openwrt_work_dir ~ '/loki_push.sh') | quote }} </dev/null >/dev/null 2>&1 &
+    echo $! > {{ (openwrt_work_dir ~ '/loki_push.pid') | quote }}
+    echo STARTED
+  register: openwrt_loki_start
+  changed_when: "'STARTED' in openwrt_loki_start.stdout"

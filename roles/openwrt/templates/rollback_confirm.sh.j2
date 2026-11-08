@@ -6,14 +6,24 @@
 # and deletes the snapshot, so nothing is rolled back.
 #
 # Output: CONFIRMED on success. Any other exit code means the timer may already
-# have started a rollback.
+# have started a rollback. Each step is logged to syslog with tag owrt.rollback.
 state={{ openwrt_rollback_run_dir | quote }}
 
+# Writes one syslog line. The Loki push forwards it with labels from the tag.
+note() {
+  logger -t "owrt.$1" -- "$2"
+}
+
 # 1. The snapshot must still exist. If it is gone, the timer already ran.
-[ -d "$state" ] || { echo 'Rollback state directory is missing.' >&2; exit 1; }
+[ -d "$state" ] || {
+  note rollback "confirmation refused: snapshot is missing, so the timer already ran"
+  echo 'Rollback state directory is missing.' >&2
+  exit 1
+}
 
 # 2. Take the lock. If the timer holds it, the rollback has already started.
 mkdir "$state/lock" 2>/dev/null || {
+  note rollback "confirmation refused: rollback already started"
   echo 'Rollback already started; configuration was not confirmed.' >&2
   exit 1
 }
@@ -22,6 +32,7 @@ mkdir "$state/lock" 2>/dev/null || {
 marker="$state/confirmed.tmp.$$"
 if ! { : > "$marker" && mv -f "$marker" "$state/confirmed"; }; then
   rmdir "$state/lock" 2>/dev/null || true
+  note rollback "confirmation failed: could not write the confirmed marker"
   exit 1
 fi
 
@@ -33,5 +44,6 @@ sleep 1
 
 # 5. Remove the lock and the snapshot.
 rmdir "$state/lock" 2>/dev/null || true
+note rollback "confirmed by the operator; timer stopped and snapshot removed"
 rm -rf "$state"
 echo CONFIRMED

@@ -3,28 +3,36 @@
 #
 # Stages the desired UCI state in the router's uncommitted delta
 # (`uci changes` shows it). Nothing is committed here. Ansible shows the diff
-# and waits for approval before tasks/main.yml commits anything.
+# and waits for approval before tasks/phases.yml commits anything.
 #
 # Each edit prints CHANGED. The script stops at the first failed command
-# (set -e), and Ansible then reverts the staged packages.
+# (set -e), and Ansible then reverts the staged packages. Each edit is also
+# logged to syslog with tag owrt.stage.<package>. Option values are
+# never logged, because some are secrets.
 set -e
+
+# Writes one syslog line. The Loki push forwards it with labels from the tag.
+note() {
+  logger -t "owrt.$1" -- "$2"
+}
 
 # 1. Sections this role managed before, but the desired state no longer has.
 {% for path in openwrt_uci_prune_sections %}
 if uci -q get {{ path | quote }} >/dev/null 2>&1; then
-  uci -q delete {{ path | quote }} && echo CHANGED
+  uci -q delete {{ path | quote }} && echo CHANGED && note stage.{{ path.split('.')[0] }} {{ ('deleted section ' ~ path) | quote }}
 fi
 {% endfor %}
 
 # 2. Options this role managed before, but the desired state no longer has.
 {% for option in openwrt_uci_prune_options %}
 if uci -q get {{ option | quote }} >/dev/null 2>&1; then
-  uci -q delete {{ option | quote }} && echo CHANGED
+  uci -q delete {{ option | quote }} && echo CHANGED && note stage.{{ option.split('.')[0] }} {{ ('deleted option ' ~ option) | quote }}
 fi
 {% endfor %}
 
 # 3. Each desired section: create it, or rename its anonymous legacy section.
 {% for section in openwrt_uci_sections %}
+{% set package = section.path.split('.')[0] %}
 
 # ---- {{ section.path }} ({{ section.type }})
 if uci -q get {{ section.path | quote }} >/dev/null 2>&1; then
@@ -38,7 +46,8 @@ if uci -q get {{ section.path | quote }} >/dev/null 2>&1; then
 elif uci -q get {{ section.legacy_path | quote }} >/dev/null 2>&1; then
   # The router has this section anonymously (for example system.@system[0]).
   # Rename it instead of creating a second section next to it.
-  uci rename {{ (section.legacy_path ~ '=' ~ section.path.split('.')[1]) | quote }} && echo CHANGED
+  uci rename {{ (section.legacy_path ~ '=' ~ section.path.split('.')[1]) | quote }} && echo CHANGED &&
+    note stage.{{ package }} {{ ('renamed legacy section ' ~ section.legacy_path ~ ' to ' ~ section.path) | quote }}
   actual_type=$(uci -q get {{ section.path | quote }})
   [ "$actual_type" = {{ section.type | quote }} ] || {
     echo "Legacy UCI section {{ section.legacy_path }} has type $actual_type, expected {{ section.type }}" >&2
@@ -47,13 +56,14 @@ elif uci -q get {{ section.legacy_path | quote }} >/dev/null 2>&1; then
 {% endif %}
 else
   # Missing: create it with its type.
-  uci set {{ (section.path ~ '=' ~ section.type) | quote }} && echo CHANGED
+  uci set {{ (section.path ~ '=' ~ section.type) | quote }} && echo CHANGED &&
+    note stage.{{ package }} {{ ('created section ' ~ section.path ~ ' (' ~ section.type ~ ')') | quote }}
 fi
 
 # Options of this section that this role managed before but no longer wants.
 {% for option in (openwrt_uci_previous_options | select('match', '^' ~ (section.path | regex_escape) ~ '\\.') | difference(openwrt_uci_desired_option_paths)) %}
 if uci -q get {{ option | quote }} >/dev/null 2>&1; then
-  uci -q delete {{ option | quote }} && echo CHANGED
+  uci -q delete {{ option | quote }} && echo CHANGED && note stage.{{ package }} {{ ('deleted option ' ~ option) | quote }}
 fi
 {% endfor %}
 
@@ -67,7 +77,7 @@ if uci -q get "$option_path" >/dev/null 2>&1 &&
    [ "$(uci -q get "$option_path")" = "$desired_value" ]; then
   :
 else
-  uci set "$option_path=$desired_value" && echo CHANGED
+  uci set "$option_path=$desired_value" && echo CHANGED && note stage.{{ package }} "set $option_path"
 fi
 {% endfor %}
 
@@ -76,7 +86,7 @@ fi
 option_path={{ (section.path ~ '.' ~ key) | quote }}
 {% if values | length == 0 %}
 if uci -q get "$option_path" >/dev/null 2>&1; then
-  uci -q delete "$option_path" && echo CHANGED
+  uci -q delete "$option_path" && echo CHANGED && note stage.{{ package }} "cleared list $option_path"
 fi
 {% else %}
 desired_value={{ (values | map('string') | join(' ')) | quote }}
@@ -90,6 +100,7 @@ else
   uci add_list {{ (section.path ~ '.' ~ key ~ '=' ~ (value | string)) | quote }} || exit 1
 {% endfor %}
   echo CHANGED
+  note stage.{{ package }} "replaced list $option_path"
 fi
 {% endif %}
 {% endfor %}

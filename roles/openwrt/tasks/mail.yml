@@ -23,5 +23,5 @@
   ansible.builtin.template:
     src: msmtprc.j2
     dest: /etc/msmtprc
-    mode: '0600'
+    mode: "0600"
   no_log: true

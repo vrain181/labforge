@@ -1,0 +1,19 @@
+---
+# Included from main.yml in the always block, so it runs after success and after
+# failure. It logs the end of the run, stops the Loki push, and removes the token
+# file. It does nothing harmful when Loki was never started.
+
+# The finish marker is logged only when this run started the push (the run ID
+# is set), and the push gets two seconds to send it before the token is removed.
+- name: Stop the Loki log push and remove the token
+  ansible.builtin.raw: |
+    token_file={{ openwrt_loki_token_file | quote }}
+    pid_file={{ (openwrt_work_dir ~ '/loki_push.pid') | quote }}
+    if [ -s "$token_file" ] && [ -n {{ openwrt_loki_run_id | quote }} ]; then
+      logger -t owrt.run -- {{ ('finished run=' ~ openwrt_loki_run_id) | quote }}
+      sleep 2
+    fi
+    if [ -s "$pid_file" ]; then kill "$(cat "$pid_file")" 2>/dev/null || true; fi
+    rm -f "$pid_file" "$token_file"
+    echo STOPPED
+  changed_when: false

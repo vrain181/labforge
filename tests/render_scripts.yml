@@ -32,13 +32,13 @@
       ansible.builtin.file:
         path: "{{ render_dir }}"
         state: directory
-        mode: '0755'
+        mode: "0755"
 
     - name: Render the staging script
       ansible.builtin.template:
         src: "{{ playbook_dir }}/../roles/openwrt/templates/stage_uci.sh.j2"
         dest: "{{ render_dir }}/stage_uci.sh"
-        mode: '0700'
+        mode: "0700"
       vars:
         openwrt_uci_prune_sections: []
         openwrt_uci_prune_options: []
@@ -47,9 +47,10 @@
       ansible.builtin.template:
         src: "{{ playbook_dir }}/../roles/openwrt/templates/{{ item }}.sh.j2"
         dest: "{{ render_dir }}/{{ item }}.sh"
-        mode: '0700'
+        mode: "0700"
       loop:
         - rollback_timer
         - rollback_prepare
         - rollback_confirm
         - safe_upgrade
+        - loki_push

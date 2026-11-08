@@ -22,7 +22,7 @@
   ansible.builtin.file:
     path: "{{ openwrt_report_dir }}/{{ item.label }}"
     state: directory
-    mode: '0700'
+    mode: "0700"
   delegate_to: localhost
   become: false
   loop: "{{ openwrt_report_sides }}"
@@ -49,7 +49,7 @@
     src: "{{ openwrt_backup_dir }}/{{ inventory_hostname }}/{{ item.name }}-cron.txt"
     dest: "{{ openwrt_report_dir }}/{{ item.label }}/crontab.root"
     remote_src: true
-    mode: '0600'
+    mode: "0600"
   delegate_to: localhost
   become: false
   loop: "{{ openwrt_report_sides }}"
@@ -71,9 +71,9 @@
       - -x
       - dropbear
       - -x
-      - '*.key'
+      - "*.key"
       - -x
-      - '*.pem'
+      - "*.pem"
       - before
       - after
     chdir: "{{ openwrt_report_dir }}"
@@ -108,7 +108,7 @@
   ansible.builtin.template:
     src: report_mail.j2
     dest: "{{ openwrt_report_dir }}/report.eml"
-    mode: '0600'
+    mode: "0600"
   delegate_to: localhost
   become: false
   when: openwrt_report_changed
@@ -117,7 +117,7 @@
   ansible.builtin.copy:
     src: "{{ openwrt_report_dir }}/report.eml"
     dest: "{{ openwrt_work_dir }}/report.eml"
-    mode: '0600'
+    mode: "0600"
   when:
     - openwrt_report_changed
     - openwrt_report_send
@@ -126,7 +126,9 @@
 - name: Send the report email from the router
   ansible.builtin.raw: >-
     msmtp -C /etc/msmtprc -t < {{ (openwrt_work_dir ~ '/report.eml') | quote }} 2>&1;
-    rc=$?; rm -f {{ (openwrt_work_dir ~ '/report.eml') | quote }}; exit $rc
+    rc=$?;
+    logger -t owrt.report -- "change report $( [ $rc -eq 0 ] && echo emailed || echo 'not sent' )";
+    rm -f {{ (openwrt_work_dir ~ '/report.eml') | quote }}; exit $rc
   register: openwrt_report_sent
   failed_when: false
   changed_when: openwrt_report_sent.rc == 0

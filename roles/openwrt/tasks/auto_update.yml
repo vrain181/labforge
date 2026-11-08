@@ -8,7 +8,7 @@
   ansible.builtin.template:
     src: safe_upgrade.sh.j2
     dest: /usr/bin/openwrt-safe-upgrade
-    mode: '0755'
+    mode: "0755"
 
 # The cron line carries a marker comment. A run replaces the line that has the
 # marker, so a changed schedule does not leave a second entry behind. Other cron

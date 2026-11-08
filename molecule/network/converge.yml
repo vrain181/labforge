@@ -17,7 +17,8 @@
         openwrt_reload_services: false
         openwrt_rollback_enabled: false
         openwrt_backup_enabled: false
-        openwrt_ssh_key_file: ''
+        openwrt_ssh_key_file: ""
+        openwrt_wifi_boot_overlay: ""
         openwrt_auto_update_enabled: false
         openwrt_report_enabled: false
 

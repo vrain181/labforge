@@ -32,7 +32,8 @@ inventory/group_vars/openwrt/
   network.yml                         YOUR network: VLANs, firewall rules, fixed sections
 roles/openwrt/
   defaults/main.yml                   generic OpenWrt baseline and role behaviour
-  tasks/main.yml                      the phases of a run (commented)
+  tasks/main.yml                      wraps the phases in a block that always stops the Loki push
+  tasks/phases.yml                    the phases of a run (commented)
   tasks/backup.yml                    backup of the router to backups/ on the controller
   tasks/validate*.yml                 checks on rollback settings, paths, list values
   tasks/build.yml                     builds the desired UCI sections from the variables
@@ -76,7 +77,7 @@ Check the playbook, then run it against the router with your SSH key:
 .venv/bin/ansible-playbook site.yml --private-key ~/.ssh/openwrt_ed25519
 ```
 
-A run goes through these phases (details are commented in `roles/openwrt/tasks/main.yml`):
+A run goes through these phases (details are commented in `roles/openwrt/tasks/phases.yml`):
 
 1. **Backup (before).** `sysupgrade -b` archives the config, and the uncommitted
    UCI edits are saved too. Files go to `backups/router/`.
@@ -129,7 +130,33 @@ Key settings (all in `roles/openwrt/defaults/main.yml` unless noted):
 | `openwrt_reload_services` | `true` | reload services after commits |
 | `openwrt_backup_enabled` | `true` | take the before and after backups |
 | `openwrt_backup_dir` | `<repo>/backups` | where backups are stored on the controller |
+| `openwrt_loki_url` | `''` | Grafana Cloud Loki push URL; with the token, streams router logs during a run |
+| `openwrt_loki_user` | `''` | Loki instance ID (basic-auth user) |
+| `openwrt_loki_token` | `''` | access token with `logs:write`; keep it in ansible-vault. Empty means no push |
 | `openwrt_ssh_key_file` (in `inventory/group_vars/openwrt/main.yml`) | `~/.ssh/openwrt_ed25519.pub` | public key installed for root on the router; `''` skips it |
+
+### Logs in Grafana Cloud Loki
+
+When the URL and the token are set, the router streams its logs to Loki for the
+length of the run. The token is written to the router for the run only and
+removed in the `always` block of `site.yml`, so it is removed after a failure too.
+
+Every role step logs with the tag `owrt.<step>[.<package>]`. Loki gets
+these labels on each line:
+
+| Label | Values |
+|---|---|
+| `job` | `openwrt` |
+| `host` | `openwrt_loki_host` (the inventory name) |
+| `app` | `openwrt-ansible` for role steps; the daemon name for other system logs |
+| `step` | `run`, `stage`, `approve`, `commit`, `apply`, `rollback`, `record`, `report`; `system` for other daemons |
+| `package` | the UCI package a step touched (`network`, `firewall`, `dhcp`, ...); `none` otherwise |
+
+For example, `{job="openwrt", step="rollback", package="firewall"}` shows the firewall
+rollback, and `{step="stage", package="network"} |= "network.vlan"` shows VLAN sections
+being staged. Option values are never logged, because some are secrets.
+
+The nightly safe-upgrade cron job runs outside a playbook run, so its logs are not streamed.
 
 ## SSH access
 

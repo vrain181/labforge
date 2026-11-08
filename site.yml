@@ -13,9 +13,13 @@
 #      Python is installed. Then install the SSH public key for root (openwrt_ssh_key_file).
 #   3. Install the Python runtime on the router. The role's template and file
 #      tasks need it. The step does nothing when it is present.
-#   4. Run the openwrt role (see roles/openwrt/tasks/main.yml for its phases).
-#   5. If everything succeeded, check the router is reachable and back it up again.
-#   6. If the run changed the configuration, email the diff against the "before"
+#   4. If openwrt_loki_url and openwrt_loki_token are set, start streaming the
+#      router's logs to Grafana Cloud Loki (roles/openwrt/tasks/loki_start.yml).
+#   5. Run the openwrt role (see roles/openwrt/tasks/phases.yml for its phases).
+#      The role stops the Loki push and removes its token when the phases end,
+#      after success or failure.
+#   6. If everything succeeded, check the router is reachable and back it up again.
+#   7. If the run changed the configuration, email the diff against the "before"
 #      backup. If the email cannot be sent, print msmtp's error (roles/openwrt/tasks/report.yml).
 - name: Provision OpenWrt router
   hosts: openwrt
@@ -68,6 +72,16 @@
         fi
       register: openwrt_python_install
       changed_when: "'INSTALLED' in openwrt_python_install.stdout"
+
+    # Last pre-task. After Python, because the start copies the token and renders
+    # a template. The role's main.yml stops the push when its phases end.
+    - name: Start streaming the router logs to Grafana Cloud Loki
+      ansible.builtin.include_role:
+        name: openwrt
+        tasks_from: loki_start.yml
+      when:
+        - openwrt_loki_url | length > 0
+        - openwrt_loki_token | length > 0
 
     - name: Show host identity
       ansible.builtin.debug:

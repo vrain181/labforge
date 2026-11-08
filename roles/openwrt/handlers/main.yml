@@ -12,7 +12,9 @@
   ansible.builtin.raw: >-
     if [ -r {{ openwrt_uci_change_marker | quote }} ] &&
        grep -qx {{ item | quote }} {{ openwrt_uci_change_marker | quote }}; then
-      sh -c {{ openwrt_uci_apply_commands[item] | quote }} && echo APPLIED;
+      sh -c {{ openwrt_uci_apply_commands[item] | quote }} &&
+      logger -t {{ ('owrt.apply.' ~ item) | quote }} -- 'services reloaded' && echo APPLIED ||
+      { logger -t {{ ('owrt.apply.' ~ item) | quote }} -- 'service reload failed'; exit 1; };
     fi
   loop: "{{ (openwrt_uci_apply_order + (openwrt_uci_apply_commands.keys() | list)) | unique | list }}"
   loop_control:

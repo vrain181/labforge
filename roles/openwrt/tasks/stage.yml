@@ -28,7 +28,7 @@
   ansible.builtin.file:
     path: "{{ openwrt_work_dir }}"
     state: directory
-    mode: '0700'
+    mode: "0700"
 
 # The whole desired state goes into one script: removals, then every section
 # with its options and lists. Rendering a file keeps each command short, which
@@ -37,7 +37,7 @@
   ansible.builtin.template:
     src: stage_uci.sh.j2
     dest: "{{ openwrt_work_dir }}/stage_uci.sh"
-    mode: '0700'
+    mode: "0700"
 
 - name: Run the UCI staging script (edits stay uncommitted)
   ansible.builtin.raw: "sh {{ openwrt_work_dir }}/stage_uci.sh"
@@ -87,7 +87,7 @@
 
 # Anything but 'yes' drops the staged edits, so the router keeps its committed config.
 - name: Discard staged UCI changes when approval is not explicit
-  ansible.builtin.raw: "uci revert {{ item | quote }}"
+  ansible.builtin.raw: "uci revert {{ item | quote }} && logger -t {{ ('owrt.approve.' ~ item) | quote }} -- 'not approved; staged changes discarded'"
   loop: "{{ openwrt_uci_changed_packages }}"
   when:
     - openwrt_manual_confirmation
@@ -105,6 +105,17 @@
       - openwrt_uci_apply_approval.user_input | default('yes') | lower == 'yes'
     fail_msg: "UCI changes were discarded because approval was not 'yes'."
     quiet: true
+  when:
+    - openwrt_manual_confirmation
+    - openwrt_uci_changed_packages | length > 0
+
+# Logged only after the assert above passed, so every line means an approval.
+- name: Record the approved UCI packages on the router
+  ansible.builtin.raw: "logger -t {{ ('owrt.approve.' ~ item) | quote }} -- 'approved by the operator; committing'"
+  loop: "{{ openwrt_uci_changed_packages }}"
+  loop_control:
+    label: "{{ item }}"
+  changed_when: false
   when:
     - openwrt_manual_confirmation
     - openwrt_uci_changed_packages | length > 0

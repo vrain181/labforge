@@ -1,0 +1,22 @@
+---
+# Included from phases.yml. Keeps the Raspberry Pi's on-board Wi-Fi chip off at
+# boot by adding a device-tree overlay to /boot/config.txt. The chip's SDIO bus
+# errors flood the log when it is left on. The overlay only takes effect after a
+# reboot, which this role never does on its own.
+
+- name: Disable the on-board Wi-Fi chip at boot
+  ansible.builtin.raw: |
+    f=/boot/config.txt
+    line={{ ('dtoverlay=' ~ openwrt_wifi_boot_overlay) | quote }}
+    grep -qxF "$line" "$f" && exit 0
+    printf '%s\n' "$line" >> "$f" && echo CHANGED
+  register: openwrt_wifi_boot
+  changed_when: "'CHANGED' in openwrt_wifi_boot.stdout"
+  when: openwrt_wifi_boot_overlay | length > 0
+
+- name: Say when the Wi-Fi overlay needs a reboot
+  ansible.builtin.debug:
+    msg: "dtoverlay={{ openwrt_wifi_boot_overlay }} was added to /boot/config.txt. Reboot the router for it to take effect."
+  when:
+    - openwrt_wifi_boot is defined
+    - "'CHANGED' in openwrt_wifi_boot.stdout | default('')"

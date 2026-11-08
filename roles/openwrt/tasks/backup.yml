@@ -41,7 +41,7 @@
   ansible.builtin.file:
     path: "{{ openwrt_backup_dir }}/{{ inventory_hostname }}"
     state: directory
-    mode: '0700'
+    mode: "0700"
   delegate_to: localhost
   become: false
 
@@ -52,24 +52,24 @@
     dest: "{{ openwrt_backup_dir }}/{{ inventory_hostname }}/"
     flat: true
   loop:
-    - '.tar.gz'
-    - '-uncommitted.txt'
-    - '-delta.tar.gz'
-    - '-cron.txt'
+    - ".tar.gz"
+    - "-uncommitted.txt"
+    - "-delta.tar.gz"
+    - "-cron.txt"
   loop_control:
     label: "{{ openwrt_backup_name }}{{ item }}"
 
 - name: Keep the backup files owner-only on the controller
   ansible.builtin.file:
     path: "{{ openwrt_backup_dir }}/{{ inventory_hostname }}/{{ openwrt_backup_name }}{{ item }}"
-    mode: '0600'
+    mode: "0600"
   delegate_to: localhost
   become: false
   loop:
-    - '.tar.gz'
-    - '-uncommitted.txt'
-    - '-delta.tar.gz'
-    - '-cron.txt'
+    - ".tar.gz"
+    - "-uncommitted.txt"
+    - "-delta.tar.gz"
+    - "-cron.txt"
   loop_control:
     label: "{{ openwrt_backup_name }}{{ item }}"
 

@@ -10,13 +10,13 @@
   ansible.builtin.template:
     src: rollback_timer.sh.j2
     dest: "{{ openwrt_work_dir }}/rollback_timer.sh"
-    mode: '0700'
+    mode: "0700"
 
 - name: Render the rollback prepare script
   ansible.builtin.template:
     src: rollback_prepare.sh.j2
     dest: "{{ openwrt_work_dir }}/rollback_prepare.sh"
-    mode: '0700'
+    mode: "0700"
 
 # The script prints RUN_DIR=<snapshot> and ARMED. ARMED is required, so a
 # failed start is reported as a change failure.

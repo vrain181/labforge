@@ -7,7 +7,7 @@
   ansible.builtin.template:
     src: rollback_confirm.sh.j2
     dest: "{{ openwrt_work_dir }}/rollback_confirm.sh"
-    mode: '0700'
+    mode: "0700"
 
 # CONFIRMED means the timer was stopped. Anything else fails this task.
 - name: Mark the snapshot confirmed and stop the timer
