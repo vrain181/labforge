@@ -21,21 +21,67 @@ log_tag=openwrt-safe-upgrade
 work=$(mktemp -d /tmp/safe-upgrade.XXXXXX) || exit 1
 trap 'rm -rf "$work"' EXIT
 : > "$work/report"
+: > "$work/changes"
 
 note() {
   echo "$*" >> "$work/report"
   logger -t "$log_tag" -- "$*"
 }
 
+html_escape() {
+  sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' \
+    -e 's/"/\&quot;/g' -e "s/'/\&#39;/g"
+}
+
+write_html_report() {
+  {
+    printf '<!doctype html><html><body style="font-family:Arial,sans-serif;color:#222">\n'
+    printf '<h2>OpenWrt package update report</h2>\n'
+    if [ -s "$work/changes" ]; then
+      printf '<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse">\n'
+      printf '<thead><tr><th align="left">Package</th><th align="left">Previous version</th><th align="left">Updated version</th></tr></thead><tbody>\n'
+      tab=$(printf '\t')
+      while IFS="$tab" read -r package old_version new_version; do
+        printf '<tr><td>%s</td><td>%s</td><td>%s</td></tr>\n' \
+          "$(printf '%s' "$package" | html_escape)" \
+          "$(printf '%s' "$old_version" | html_escape)" \
+          "$(printf '%s' "$new_version" | html_escape)"
+      done < "$work/changes"
+      printf '</tbody></table>\n'
+    else
+      printf '<p>No package version changes were detected.</p>\n'
+    fi
+    printf '<h3>Details</h3><pre style="white-space:pre-wrap">\n'
+    html_escape < "$work/report"
+    printf '</pre></body></html>\n'
+  } > "$work/report.html"
+}
+
 notify() {
   [ -s "$work/report" ] || return 0
+  write_html_report
+  boundary="----=_OpenWrt_$(date +%s)_$$"
   {
     echo "To: $mail_to"
     echo "From: $mail_from"
     echo "Subject: [$(uname -n)] package update report"
     echo "Date: $(date -R)"
+    echo 'MIME-Version: 1.0'
+    echo "Content-Type: multipart/alternative; boundary=\"$boundary\""
+    echo
+    echo "--$boundary"
+    echo 'Content-Type: text/plain; charset=UTF-8'
+    echo 'Content-Transfer-Encoding: 8bit'
     echo
     cat "$work/report"
+    echo
+    echo "--$boundary"
+    echo 'Content-Type: text/html; charset=UTF-8'
+    echo 'Content-Transfer-Encoding: 8bit'
+    echo
+    cat "$work/report.html"
+    echo
+    echo "--$boundary--"
   } | msmtp -C /etc/msmtprc -t || logger -t "$log_tag" -- "could not send the report email"
 }
 
@@ -43,6 +89,15 @@ fail() {
   note "FAILED: $*"
   notify
   exit 1
+}
+
+record_changes() {
+  apk list --installed --manifest > "$work/after" || return 1
+  awk '
+    NR == FNR { old[$1] = $2; next }
+    ($1 in old) && old[$1] != $2 { print $1 "\t" old[$1] "\t" $2 }
+    !($1 in old) { print $1 "\t(not installed)\t" $2 }
+  ' "$work/before" "$work/after" > "$work/changes"
 }
 
 # apk names a package name-version. The version starts at the first "-" that
@@ -102,12 +157,26 @@ if [ -s "$work/safe" ]; then
   if [ -n "$blocked" ]; then
     note "Skipped the safe upgrade: it would also change held-back packages ($blocked)."
   else
+    # Capture installed versions before and after the transaction so the report
+    # reflects actual changes, including dependencies upgraded by apk.
+    apk list --installed --manifest > "$work/before" || fail "reading installed package versions before upgrade"
+
     # 4. Upgrade only the named safe packages. xargs -r skips the call when
     #    the list is empty, so a bare `apk upgrade` cannot run here.
     if xargs -r apk upgrade < "$work/safe" > "$work/upgrade" 2>&1; then
-      note "Upgraded: $(tr '\n' ' ' < "$work/safe")"
+      record_changes || fail "reading installed package versions after upgrade"
+      if [ -s "$work/changes" ]; then
+        note "Package upgrades (name: previous version -> updated version):"
+        tab=$(printf '\t')
+        while IFS="$tab" read -r package old_version new_version; do
+          note "$package: $old_version -> $new_version"
+        done < "$work/changes"
+      else
+        note "No package version changes were detected."
+      fi
     else
       cat "$work/upgrade" >> "$work/report"
+      record_changes || :
       fail "apk upgrade"
     fi
   fi

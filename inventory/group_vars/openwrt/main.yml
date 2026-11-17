@@ -10,3 +10,7 @@ ansible_python_interpreter: /usr/bin/python3
 # this key only, so the key must be on the router before password login is turned
 # off. Set to '' to skip. Molecule sets '' because the test container has no SSH.
 openwrt_ssh_key_file: "{{ lookup('env', 'HOME') }}/.ssh/openwrt_ed25519.pub"
+
+# Install crontab to run update script at night.
+openwrt_auto_update_enabled: true
+openwrt_auto_update_schedule: "0 2 * * *"
